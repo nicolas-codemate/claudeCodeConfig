@@ -1,8 +1,12 @@
-<p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/anthropics/anthropic-cookbook@main/misc/anthropic_logo.svg" alt="Claude Code" width="80" />
-</p>
+```
+   _____ _                 _         ___          _
+  / ____| |               | |       / __|___   __| | ___
+ | |    | | __ _ _   _  __| | ___  | |  / _ \ / _` |/ _ \
+ | |____| |/ _` | | | |/ _` |/ _ \ | |_| (_) | (_| |  __/
+  \_____|_|\__,_|\__,_|\__,_|\___/  \___\___/ \__,_|\___|
+```
 
-<h1 align="center">Claude Code Configuration</h1>
+<h3 align="center">My Configuration</h3>
 
 <p align="center">
   <em>Personal configuration for <a href="https://docs.anthropic.com/en/docs/claude-code">Claude Code CLI</a></em>
