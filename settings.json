@@ -25,13 +25,30 @@
     ],
     "deny": [
       "Bash(curl:*)",
+      "Bash(rm -rf *)",
+      "Bash(rm -rf /)",
       "Read(./.env)",
       "Read(./.env.*)",
-      "Read(./secrets/**)"
+      "Read(./secrets/**)",
+      "Write(.git/*)",
+      "Write(**/package-lock.json)",
+      "Write(**/composer.lock)",
+      "Write(**/yarn.lock)"
     ],
     "defaultMode": "default"
   },
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '\"[\" + (now | strftime(\"%Y-%m-%d %H:%M:%S\")) + \"] \" + .tool_input.command' >> ~/.claude/logs/bash-commands.log 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write|MultiEdit",

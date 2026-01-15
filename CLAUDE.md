@@ -1,4 +1,4 @@
-/# Master Rules
+# Master Rules
 
 - **NEVER** add "Generated with Claude Code" to pull requests
 - **NEVER** add Claude as co-authors to commits you create
