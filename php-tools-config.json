@@ -1,0 +1,17 @@
+{
+  "environment": "docker",
+  "tools": {
+    "phpstan": {
+      "available": true,
+      "command": "docker compose exec php vendor/bin/phpstan analyse --error-format=json --no-progress"
+    },
+    "psalm": {
+      "available": true,
+      "command": "docker compose exec php vendor/bin/psalm --output-format=json --no-progress"
+    },
+    "php-cs-fixer": {
+      "available": true,
+      "command": "docker compose exec php vendor/bin/php-cs-fixer fix --no-interaction"
+    }
+  }
+}

@@ -1,0 +1,41 @@
+# ============================================
+# Claude Code - .gitignore
+# ============================================
+
+# CREDENTIALS - NEVER COMMIT
+.credentials.json
+*.key
+*.pem
+
+# Session & Runtime data
+history.jsonl
+session-env/
+shell-snapshots/
+todos/
+plans/
+debug/
+file-history/
+paste-cache/
+
+# Cache & Statistics
+cache/
+stats-cache.json
+statsig/
+telemetry/
+
+# Project-specific data (generated per project)
+projects/
+
+# IDE integration (machine-specific)
+ide/
+.idea/
+chrome/
+
+# Plugins runtime data
+plugins/installed_plugins.json
+plugins/known_marketplaces.json
+plugins/marketplaces/
+
+# OS files
+.DS_Store
+Thumbs.db
