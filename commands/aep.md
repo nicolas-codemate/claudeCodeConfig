@@ -19,7 +19,7 @@ Apply the AEP methodology from `~/.claude/skills/aep/SKILL.md` for: `$ARGUMENTS`
 3. **Output the plan** directly in the conversation
 
 This is the simple version - plan stays in the chat.
-For automated execution with saved plan files, use `/plan` instead.
+For automated execution with saved plan files, use `/create-plan` instead.
 
 ## Now
 

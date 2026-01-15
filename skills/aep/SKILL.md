@@ -1,6 +1,6 @@
 ---
 name: aep
-description: Analyse-Explore-Plan methodology for thorough analysis and planning before development. Use when starting a new feature, investigating a problem, or needing to understand a codebase before making changes. Provides structured workflow with parallel exploration agents and clarification questions.
+description: Analyse-Explore-Plan methodology for thorough analysis and planning before development. Use when starting a new feature, investigating a problem, or needing to understand a codebase before making changes. Provides structured workflow with parallel exploration agents and clarification questions. Integrates with Architect skill for high-quality implementation plans.
 ---
 
 # AEP Skill - Analyse, Explore, Plan
@@ -95,29 +95,55 @@ Ask questions using clear, specific language. Propose options when possible.
 
 ## Phase 4: PLAN
 
+**IMPORTANT**: Before creating the plan, read and apply the Architect skill from `~/.claude/skills/architect/SKILL.md`.
+
+The Architect skill provides:
+- Phase design checklists (scope, files, dependencies, validation, rollback)
+- Plan-level checklists (completeness, ordering, testing, risks)
+- Universal patterns (feature flags, strangler fig, safe migrations)
+- Anti-patterns to avoid (big bang phases, hidden dependencies, etc.)
+
+### Apply Architect Guidelines
+
+1. **Read the Architect skill** to internalize the principles
+2. **Design phases** following the atomic phase rules (max 3 files, single goal)
+3. **Order by risk** (infrastructure first, migrations last)
+4. **Run checklists** on each phase before finalizing
+5. **Document architectural decisions** when non-obvious choices are made
+
+### Plan Structure
+
 Create a detailed implementation plan with:
 
-### Context
+#### Context
 - Summary of what you understood
 - Key findings from exploration
 - Assumptions made (if any)
 
-### Approach
+#### Architectural Decisions (if applicable)
+- Non-obvious technical choices
+- Options considered and rationale
+- Consequences for implementation
+
+#### Approach
 - Chosen technical approach
 - Justification for the approach
 - Alternatives considered and why rejected
 
-### Implementation Details
-- Files to modify/create with description of changes
-- Order of operations (what depends on what)
-- Estimated complexity per component
+#### Implementation Phases
+For each phase, include:
+- **Goal**: Single, clear objective
+- **Files**: Explicit paths (max 3 per phase)
+- **Dependencies**: What must be done before
+- **Validation**: Concrete command or check
+- **Commit message**: Conventional format
 
-### Risks & Mitigations
+#### Risks & Mitigations
 - What could go wrong
 - How to handle each risk
 - Fallback strategies
 
-### Testing Strategy
+#### Testing Strategy
 - How to validate the implementation
 - What tests to write/modify
 - Manual verification steps if needed
