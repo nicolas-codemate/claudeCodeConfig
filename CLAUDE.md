@@ -60,10 +60,39 @@
 - Use type hints and documentation where appropriate
 - Prioritize readability and maintainability over clever solutions
 
-## Quality Assurance
+## Quality Assurance - Always Works
 
-- Test your changes thoroughly before submitting
-- Consider edge cases and error scenarios
-- Ensure proper error handling for new code
-- Validate that new code integrates well with existing systems
-- Check for potential security vulnerabilities in new implementations
+**CRITICAL**: "Should work" is NOT "does work". Pattern matching and logical reasoning are not enough. Every change MUST be verified.
+
+### Mandatory Testing After Each Modification
+
+After ANY code change, you MUST:
+
+1. **Run/build the code** - Compile, lint, or execute to catch syntax errors
+2. **Trigger the exact feature changed** - Don't assume, verify
+3. **Observe the expected result** - Check output, logs, UI, database
+4. **Check for error messages** - Silent failures are still failures
+
+### Test Requirements by Change Type
+
+- **UI Changes**: Actually interact with the element (click, submit, navigate)
+- **API Changes**: Make the actual API call and verify response
+- **Database Changes**: Query and confirm the data
+- **Logic Changes**: Run the specific scenario with real inputs
+- **Config Changes**: Restart/reload and verify it applies
+
+### Phrases to NEVER Use
+
+- "This should work now"
+- "I've fixed the issue" (without testing)
+- "Try it now" (without trying it yourself first)
+- "The logic is correct so..."
+
+### The Reality Check
+
+Before declaring something fixed, ask yourself:
+- Did I actually run/test this?
+- Did I see the expected result with my own observation?
+- Would I bet money this works?
+
+**Time saved skipping tests: 30 seconds. Time wasted when it fails: 30 minutes. User trust lost: immeasurable.**
