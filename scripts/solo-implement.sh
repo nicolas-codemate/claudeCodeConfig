@@ -1,13 +1,13 @@
 #!/bin/bash
 
 #===============================================================================
-# implement.sh - Automated phased implementation orchestrator for Claude Code
+# solo-implement.sh - Automated phased implementation orchestrator for Claude Code
 #
-# This script reads a plan created by /plan and executes each phase
+# This script reads a plan created by /create-plan and executes each phase
 # using Claude Code with --dangerously-skip-permissions.
 #
 # Usage:
-#   implement.sh [OPTIONS]
+#   solo-implement.sh [OPTIONS]
 #
 # Options:
 #   -p, --plan FILE       Use specific plan file (default: latest in .claude/implementation/)
@@ -22,7 +22,7 @@
 #
 # Requirements:
 #   - Claude Code CLI installed and authenticated
-#   - Plan file created with /plan command
+#   - Plan file created with /create-plan command
 #   - Git repository initialized
 #
 #===============================================================================
@@ -48,6 +48,26 @@ SINGLE_PHASE=""
 DRY_RUN=false
 NO_COMMIT=false
 VERBOSE=false
+
+# Temporary files tracking for cleanup
+TEMP_FILES=()
+
+# Cumulative metrics for final summary
+TOTAL_COST=0
+TOTAL_INPUT_TOKENS=0
+TOTAL_OUTPUT_TOKENS=0
+TOTAL_LINES_ADDED=0
+TOTAL_LINES_DELETED=0
+PHASES_COMPLETED=0
+
+# Cleanup function for trap
+cleanup() {
+    for f in "${TEMP_FILES[@]}"; do
+        rm -f "$f" 2>/dev/null
+    done
+}
+
+trap cleanup EXIT INT TERM
 
 #-------------------------------------------------------------------------------
 # Logging functions
@@ -85,37 +105,53 @@ log_verbose() {
 # Metrics functions
 #-------------------------------------------------------------------------------
 
-# Display metrics from statusline debug file
+# Display metrics from ccusage session JSON
 show_phase_metrics() {
     local phase_num=$1
-    local metrics_file="/tmp/statusline-debug.json"
-    
-    if [[ ! -f "$metrics_file" ]]; then
-        log_verbose "Metrics file not found: $metrics_file"
+    local json_file=$2
+    local lines_added=${3:-0}
+    local lines_deleted=${4:-0}
+
+    if [[ ! -f "$json_file" ]] || [[ ! -s "$json_file" ]]; then
+        log_verbose "Metrics file not found or empty: $json_file"
         return
     fi
-    
-    # Extract metrics from JSON
-    local cost input_tokens cache_read cache_creation context_size
-    cost=$(jq -r '.cost.total_cost_usd // 0' "$metrics_file" 2>/dev/null)
-    input_tokens=$(jq -r '.context_window.current_usage.input_tokens // 0' "$metrics_file" 2>/dev/null)
-    cache_read=$(jq -r '.context_window.current_usage.cache_read_input_tokens // 0' "$metrics_file" 2>/dev/null)
-    cache_creation=$(jq -r '.context_window.current_usage.cache_creation_input_tokens // 0' "$metrics_file" 2>/dev/null)
-    context_size=$(jq -r '.context_window.context_window_size // 200000' "$metrics_file" 2>/dev/null)
-    
-    # Calculate totals
-    local total_tokens=$((input_tokens + cache_read + cache_creation))
-    local context_pct=$(awk "BEGIN {printf \"%.1f\", ($total_tokens / $context_size) * 100}")
+
+    # Extract metrics from ccusage session JSON format
+    local cost input_tokens output_tokens cache_read cache_creation context_size
+    cost=$(jq -r '.totalCost // 0' "$json_file" 2>/dev/null)
+    input_tokens=$(jq -r '[.entries[].inputTokens] | add // 0' "$json_file" 2>/dev/null)
+    output_tokens=$(jq -r '[.entries[].outputTokens] | add // 0' "$json_file" 2>/dev/null)
+    cache_read=$(jq -r '[.entries[].cacheReadTokens] | add // 0' "$json_file" 2>/dev/null)
+    cache_creation=$(jq -r '[.entries[].cacheCreationTokens] | add // 0' "$json_file" 2>/dev/null)
+
+    # Default context window size (Opus 4.5 = 200K)
+    context_size=200000
+
+    # Calculate context usage (input + cache tokens count toward context)
+    local context_tokens=$((input_tokens + cache_read + cache_creation))
+    local context_pct=$(awk "BEGIN {printf \"%.1f\", ($context_tokens / $context_size) * 100}")
+    local context_remaining=$((context_size - context_tokens))
     local cost_formatted=$(printf "%.4f" "$cost")
-    
+
     # Format tokens with K suffix if large
-    local tokens_display
-    if [[ $total_tokens -gt 1000 ]]; then
-        tokens_display=$(awk "BEGIN {printf \"%.1fK\", $total_tokens / 1000}")
-    else
-        tokens_display="$total_tokens"
-    fi
-    
+    format_tokens() {
+        local tokens=$1
+        if [[ $tokens -gt 1000000 ]]; then
+            awk "BEGIN {printf \"%.1fM\", $tokens / 1000000}"
+        elif [[ $tokens -gt 1000 ]]; then
+            awk "BEGIN {printf \"%.1fK\", $tokens / 1000}"
+        else
+            echo "$tokens"
+        fi
+    }
+
+    local input_display=$(format_tokens $input_tokens)
+    local output_display=$(format_tokens $output_tokens)
+    local cache_read_display=$(format_tokens $cache_read)
+    local cache_creation_display=$(format_tokens $cache_creation)
+    local context_remaining_display=$(format_tokens $context_remaining)
+
     # Color for context percentage
     local ctx_color
     if (( $(echo "$context_pct < 50" | bc -l) )); then
@@ -125,7 +161,7 @@ show_phase_metrics() {
     else
         ctx_color="$RED"
     fi
-    
+
     # Progress bar (20 chars)
     local bar_width=20
     local filled=$(awk "BEGIN {printf \"%.0f\", ($context_pct / 100) * $bar_width}")
@@ -137,120 +173,63 @@ show_phase_metrics() {
             bar+="░"
         fi
     done
-    
-    echo -e "${CYAN}───────────────────────────────────────────────────────────${NC}"
-    echo -e "  📊 ${BLUE}Phase $phase_num Metrics${NC}"
-    echo -e "  💰 Cost: ${GREEN}\${cost_formatted}${NC}"
-    echo -e "  🔤 Tokens: ${tokens_display} (input: $input_tokens, cache: $cache_read)"
-    echo -e "  📦 Context: ${ctx_color}[$bar]${NC} ${context_pct}%"
-    echo -e "${CYAN}───────────────────────────────────────────────────────────${NC}"
+
+    # Accumulate metrics for final summary
+    TOTAL_COST=$(echo "$TOTAL_COST + $cost" | bc -l)
+    TOTAL_INPUT_TOKENS=$((TOTAL_INPUT_TOKENS + input_tokens))
+    TOTAL_OUTPUT_TOKENS=$((TOTAL_OUTPUT_TOKENS + output_tokens))
+    TOTAL_LINES_ADDED=$((TOTAL_LINES_ADDED + lines_added))
+    TOTAL_LINES_DELETED=$((TOTAL_LINES_DELETED + lines_deleted))
+    PHASES_COMPLETED=$((PHASES_COMPLETED + 1))
+
+    echo ""
+    echo -e "${MAGENTA}┌─────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${MAGENTA}│${NC} ${BOLD}Phase $phase_num Metrics${NC}                                      ${MAGENTA}│${NC}"
+    echo -e "${MAGENTA}├─────────────────────────────────────────────────────────┤${NC}"
+    echo -e "${MAGENTA}│${NC}  💰 Cost:   ${GREEN}\$${cost_formatted}${NC}                              ${MAGENTA}│${NC}"
+    echo -e "${MAGENTA}│${NC}  📝 Lines:  ${GREEN}+${lines_added}${NC}, ${RED}-${lines_deleted}${NC}                              ${MAGENTA}│${NC}"
+    echo -e "${MAGENTA}│${NC}  📥 Input:  ${CYAN}${input_display}${NC} tokens                          ${MAGENTA}│${NC}"
+    echo -e "${MAGENTA}│${NC}  📤 Output: ${CYAN}${output_display}${NC} tokens                         ${MAGENTA}│${NC}"
+    echo -e "${MAGENTA}│${NC}  📚 Cache:  ${CYAN}${cache_read_display}${NC} read / ${CYAN}${cache_creation_display}${NC} created      ${MAGENTA}│${NC}"
+    echo -e "${MAGENTA}├─────────────────────────────────────────────────────────┤${NC}"
+    echo -e "${MAGENTA}│${NC}  📊 Context: ${ctx_color}[$bar]${NC} ${context_pct}%               ${MAGENTA}│${NC}"
+    echo -e "${MAGENTA}│${NC}  📏 Remaining: ${GREEN}${context_remaining_display}${NC} / $(format_tokens $context_size) tokens    ${MAGENTA}│${NC}"
+    echo -e "${MAGENTA}└─────────────────────────────────────────────────────────┘${NC}"
 }
 
-#-------------------------------------------------------------------------------
-# Stats functions
-#-------------------------------------------------------------------------------
-
-# Get Claude project path for current directory
-get_claude_project_path() {
-    local cwd
-    cwd=$(pwd)
-    local encoded
-    encoded=$(echo "$cwd" | sed 's|/|-|g')
-    echo "$HOME/.claude/projects/$encoded"
-}
-
-# Find the most recent JSONL session file
-get_latest_session_file() {
-    local project_path
-    project_path=$(get_claude_project_path)
-    
-    if [[ -d "$project_path" ]]; then
-        find "$project_path" -maxdepth 1 -name "*.jsonl" -type f 2>/dev/null | \
-            xargs -r ls -t 2>/dev/null | head -1
+# Display total metrics summary
+show_total_metrics() {
+    if [[ "$PHASES_COMPLETED" -eq 0 ]]; then
+        return
     fi
-}
 
-# Extract session stats from JSONL file
-get_session_stats() {
-    local jsonl_file=$1
-    
-    if [[ ! -f "$jsonl_file" ]]; then
-        return 1
-    fi
-    
-    # Count tokens from assistant messages (they have usage info)
-    local input_tokens=0
-    local output_tokens=0
-    local cost=0
-    
-    # Parse the last summary message or accumulate from messages
-    # Look for messages with costUsd field
-    while IFS= read -r line; do
-        local msg_cost
-        msg_cost=$(echo "$line" | jq -r '.message.costUsd // 0' 2>/dev/null)
-        if [[ "$msg_cost" != "0" && "$msg_cost" != "null" ]]; then
-            cost=$(echo "$cost + $msg_cost" | bc -l 2>/dev/null || echo "$cost")
-        fi
-        
-        local msg_input
-        msg_input=$(echo "$line" | jq -r '.message.usage.input_tokens // 0' 2>/dev/null)
-        if [[ "$msg_input" != "0" && "$msg_input" != "null" ]]; then
-            input_tokens=$((input_tokens + msg_input))
-        fi
-        
-        local msg_output
-        msg_output=$(echo "$line" | jq -r '.message.usage.output_tokens // 0' 2>/dev/null)
-        if [[ "$msg_output" != "0" && "$msg_output" != "null" ]]; then
-            output_tokens=$((output_tokens + msg_output))
-        fi
-    done < "$jsonl_file"
-    
-    echo "$input_tokens:$output_tokens:$cost"
-}
+    local cost_formatted
+    cost_formatted=$(printf "%.4f" "$TOTAL_COST")
 
-# Display stats in a nice format
-display_phase_stats() {
-    local phase_num=$1
-    local start_tokens=$2
-    local end_tokens=$3
-    
-    # Try to get stats from ccusage if available
-    if command -v npx &> /dev/null; then
-        local stats
-        stats=$(npx -y ccusage@latest session --json 2>/dev/null | jq -r '.[-1] // empty' 2>/dev/null)
-        
-        if [[ -n "$stats" ]]; then
-            local total_input
-            total_input=$(echo "$stats" | jq -r '.input_tokens // 0')
-            local total_output
-            total_output=$(echo "$stats" | jq -r '.output_tokens // 0')
-            local total_cost
-            total_cost=$(echo "$stats" | jq -r '.total_cost // 0')
-            local context_pct
-            context_pct=$(echo "$stats" | jq -r '.context_percentage // 0')
-            
-            # Format numbers
-            local formatted_input
-            formatted_input=$(numfmt --to=si --format="%.1f" "$total_input" 2>/dev/null || echo "$total_input")
-            local formatted_output
-            formatted_output=$(numfmt --to=si --format="%.1f" "$total_output" 2>/dev/null || echo "$total_output")
-            local formatted_cost
-            formatted_cost=$(printf "%.4f" "$total_cost" 2>/dev/null || echo "$total_cost")
-            
-            echo ""
-            echo -e "${MAGENTA}┌─────────────────────────────────────────────────────────┐${NC}"
-            echo -e "${MAGENTA}│${NC} ${BOLD}Phase $phase_num Stats${NC}                                      ${MAGENTA}│${NC}"
-            echo -e "${MAGENTA}├─────────────────────────────────────────────────────────┤${NC}"
-            echo -e "${MAGENTA}│${NC}  📊 Tokens: ${CYAN}${formatted_input}${NC} in / ${CYAN}${formatted_output}${NC} out               ${MAGENTA}│${NC}"
-            echo -e "${MAGENTA}│${NC}  💰 Cost:   ${GREEN}\${formatted_cost}${NC}                              ${MAGENTA}│${NC}"
-            echo -e "${MAGENTA}│${NC}  📈 Context: ${YELLOW}${context_pct}%${NC} used                          ${MAGENTA}│${NC}"
-            echo -e "${MAGENTA}└─────────────────────────────────────────────────────────┘${NC}"
-            return 0
+    # Format tokens
+    format_tokens() {
+        local tokens=$1
+        if [[ $tokens -gt 1000000 ]]; then
+            awk "BEGIN {printf \"%.1fM\", $tokens / 1000000}"
+        elif [[ $tokens -gt 1000 ]]; then
+            awk "BEGIN {printf \"%.1fK\", $tokens / 1000}"
+        else
+            echo "$tokens"
         fi
-    fi
-    
-    # Fallback: simple message
-    log_info "Stats: Install ccusage for detailed metrics (npx ccusage)"
+    }
+
+    local input_display=$(format_tokens $TOTAL_INPUT_TOKENS)
+    local output_display=$(format_tokens $TOTAL_OUTPUT_TOKENS)
+
+    echo ""
+    echo -e "${CYAN}╔═════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${NC} ${BOLD}TOTAL SUMMARY ($PHASES_COMPLETED phases)${NC}                           ${CYAN}║${NC}"
+    echo -e "${CYAN}╠═════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}║${NC}  💰 Total Cost:   ${GREEN}\$${cost_formatted}${NC}                          ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}  📝 Total Lines:  ${GREEN}+${TOTAL_LINES_ADDED}${NC}, ${RED}-${TOTAL_LINES_DELETED}${NC}                          ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}  📥 Total Input:  ${CYAN}${input_display}${NC} tokens                      ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}  📤 Total Output: ${CYAN}${output_display}${NC} tokens                     ${CYAN}║${NC}"
+    echo -e "${CYAN}╚═════════════════════════════════════════════════════════╝${NC}"
 }
 
 #-------------------------------------------------------------------------------
@@ -265,14 +244,43 @@ show_help() {
 find_latest_plan() {
     local latest
     latest=$(find "$PLAN_DIR" -maxdepth 1 -name "*.md" -type f 2>/dev/null | sort -r | head -1)
-    
+
     if [[ -z "$latest" ]]; then
         log_error "No plan files found in $PLAN_DIR"
-        log_info "Create a plan first with: claude then /plan <your feature>"
+        log_info "Create a plan first with: /create-plan <your feature>"
         exit 1
     fi
-    
+
     echo "$latest"
+}
+
+# Ensure we're not on main/master branch
+ensure_feature_branch() {
+    local feature_name=$1
+    local current_branch
+    current_branch=$(git branch --show-current 2>/dev/null)
+
+    if [[ "$current_branch" == "main" || "$current_branch" == "master" ]]; then
+        log_warn "Currently on '$current_branch' branch - creating feature branch..."
+
+        # Generate branch name from feature name
+        local branch_name
+        if [[ -n "$feature_name" ]]; then
+            # Sanitize feature name for branch: lowercase, replace spaces with dashes
+            branch_name="feat/$(echo "$feature_name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//' | cut -c1-50)"
+        else
+            branch_name="feat/implement-$(date +%Y%m%d-%H%M%S)"
+        fi
+
+        git checkout -b "$branch_name" || {
+            log_error "Failed to create branch '$branch_name'"
+            exit 1
+        }
+
+        log_success "Created and switched to branch: $branch_name"
+    else
+        log_info "On branch: $current_branch"
+    fi
 }
 
 # Extract frontmatter value
@@ -503,33 +511,58 @@ IMPORTANT RULES:
 3. After making changes, run the validation command if specified
 4. Do NOT commit - the orchestrator script handles commits
 5. If you encounter an error, stop and explain clearly
-6. ALL OUTPUT MUST BE IN FRENCH
 
 Begin implementation of Phase $phase_num now."
 
     # Execute with Claude
     log_info "Executing phase $phase_num with Claude..."
     echo ""
-    
+
     local exit_code=0
-    # Run Claude with visible output (no --output-format to see streaming)
-    claude -p "$prompt" --dangerously-skip-permissions || exit_code=$?
-    
+    local json_output
+    json_output=$(mktemp)
+    TEMP_FILES+=("$json_output")
+
+    # Generate a unique session ID for this phase
+    local session_id
+    session_id=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "phase-$phase_num-$(date +%s)")
+
+    # Run Claude with streaming output (visible in real-time)
+    claude -p "$prompt" --dangerously-skip-permissions --session-id "$session_id" || exit_code=$?
+
     echo ""
-    
+
     if [[ $exit_code -ne 0 ]]; then
         log_error "Phase $phase_num failed with exit code $exit_code"
-        mark_phase_failed "$plan_file" "$phase_num" "Claude execution failed with code $exit_code"
+        mark_phase_failed "$plan_file" "$phase_num" "Claude execution failed"
         return 1
     fi
-    
+
+    # Get metrics from ccusage for this session (most reliable source)
+    if command -v ccusage &> /dev/null; then
+        ccusage session --id "$session_id" --json 2>/dev/null > "$json_output" || true
+    fi
+
     # Mark as completed
     mark_phase_completed "$plan_file" "$phase_num"
     log_success "Phase $phase_num completed"
-    
-    # Show metrics
-    show_phase_metrics "$phase_num"
-    
+
+    # Get git diff stats (lines added/deleted)
+    local lines_added=0
+    local lines_deleted=0
+    local git_stats
+    git_stats=$(git diff --shortstat 2>/dev/null)
+    if [[ -n "$git_stats" ]]; then
+        lines_added=$(echo "$git_stats" | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
+        lines_deleted=$(echo "$git_stats" | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
+    fi
+
+    # Show metrics from JSON output
+    show_phase_metrics "$phase_num" "$json_output" "$lines_added" "$lines_deleted"
+
+    # Cleanup
+    rm -f "$json_output"
+
     # Commit
     do_commit "$commit_msg"
     
@@ -554,7 +587,10 @@ run_implementation() {
     status=$(get_frontmatter "$plan_file" "status")
     local total_phases
     total_phases=$(count_phases "$plan_file")
-    
+
+    # Ensure we're on a feature branch (not main/master)
+    ensure_feature_branch "$feature"
+
     log_info "Feature: $feature"
     log_info "Status: $status"
     log_info "Total phases: $total_phases"
@@ -602,7 +638,10 @@ run_implementation() {
             update_frontmatter "$plan_file" "status" "completed"
             update_frontmatter "$plan_file" "completed" "$(date -Iseconds)"
             do_commit "docs: mark implementation plan as completed"
-            
+
+            # Show total metrics summary
+            show_total_metrics
+
             echo ""
             log_success "═══════════════════════════════════════════════════════════"
             log_success "  IMPLEMENTATION COMPLETED SUCCESSFULLY!"
@@ -614,6 +653,7 @@ run_implementation() {
             log_info "  - Create a PR if applicable"
         else
             update_frontmatter "$plan_file" "status" "partial"
+            show_total_metrics
             log_warn "Implementation partially completed (phases 1-$((phase-1)) of $total_phases)"
             log_info "Resume with: $0 --plan $plan_file --start $phase"
         fi
@@ -678,7 +718,22 @@ main() {
         log_error "Claude Code CLI not found. Install it first."
         exit 1
     fi
-    
+
+    if ! command -v jq &> /dev/null; then
+        log_error "jq not found. Install it with: sudo apt install jq"
+        exit 1
+    fi
+
+    if ! command -v bc &> /dev/null; then
+        log_error "bc not found. Install it with: sudo apt install bc"
+        exit 1
+    fi
+
+    if ! command -v ccusage &> /dev/null; then
+        log_warn "ccusage not found. Metrics will not be displayed."
+        log_info "Install with: npm install -g ccusage"
+    fi
+
     if ! git rev-parse --git-dir &> /dev/null; then
         log_error "Not in a git repository"
         exit 1
@@ -691,7 +746,7 @@ main() {
     
     echo ""
     echo -e "${CYAN}╔═══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║       IMPLEMENT.SH - Automated Phase Orchestrator         ║${NC}"
+    echo -e "${CYAN}║     SOLO-IMPLEMENT.SH - Automated Phase Orchestrator      ║${NC}"
     echo -e "${CYAN}╚═══════════════════════════════════════════════════════════╝${NC}"
     echo ""
     
