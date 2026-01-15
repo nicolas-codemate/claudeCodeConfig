@@ -6,19 +6,28 @@
 # This script reads a plan created by /create-plan and executes each phase
 # using Claude Code with --dangerously-skip-permissions.
 #
+# Features:
+#   - Dynamic validation: Claude detects and runs appropriate tests/linters
+#   - Intelligent retry: Failed phases are retried with error context
+#   - Phase context: Each phase receives summary of completed phases
+#   - Extended thinking: Optional thinking budget for complex phases
+#
 # Usage:
 #   solo-implement.sh [OPTIONS]
 #
 # Options:
-#   -p, --plan FILE       Use specific plan file (default: latest in .claude/implementation/)
-#   -s, --start N         Start from phase N (default: 1 or next pending)
-#   -e, --end N           Stop after phase N (default: all phases)
-#   --phase N             Execute only phase N
-#   --dry-run             Show what would be executed without running
-#   --no-commit           Skip automatic commits after phases
-#   --no-push             Don't push after completion (default: no push)
-#   -v, --verbose         Verbose output
-#   -h, --help            Show this help
+#   -p, --plan FILE         Use specific plan file (default: latest in .claude/implementation/)
+#   -s, --start N           Start from phase N (default: 1 or next pending)
+#   -e, --end N             Stop after phase N (default: all phases)
+#   --phase N               Execute only phase N
+#   --dry-run               Show what would be executed without running
+#   --no-commit             Skip automatic commits after phases
+#   --no-validate           Skip dynamic validation after each phase
+#   --max-retries N         Max retry attempts per phase (default: 2)
+#   --retry-delay N         Seconds to wait between retries (default: 5)
+#   --thinking-budget N     Enable extended thinking with N tokens budget
+#   -v, --verbose           Verbose output
+#   -h, --help              Show this help
 #
 # Requirements:
 #   - Claude Code CLI installed and authenticated
@@ -47,7 +56,16 @@ END_PHASE=""
 SINGLE_PHASE=""
 DRY_RUN=false
 NO_COMMIT=false
+NO_VALIDATE=false
 VERBOSE=false
+
+# Reliability configuration
+MAX_RETRIES=2
+RETRY_DELAY=5
+THINKING_BUDGET=""
+
+# Runtime state
+LAST_OUTPUT=""
 
 # Temporary files tracking for cleanup
 TEMP_FILES=()
@@ -237,7 +255,7 @@ show_total_metrics() {
 #-------------------------------------------------------------------------------
 
 show_help() {
-    head -35 "$0" | tail -32 | sed 's/^# //' | sed 's/^#//'
+    head -37 "$0" | tail -34 | sed 's/^# //' | sed 's/^#//'
     exit 0
 }
 
@@ -354,8 +372,90 @@ mark_phase_failed() {
     local error_msg=$3
     local timestamp
     timestamp=$(date -Iseconds)
-    
+
     sed -i "s/^## Phase ${phase_num}: \(.*\)$/## Phase ${phase_num}: \1 ❌ (${timestamp})\n\n**Error**: ${error_msg}/" "$file"
+}
+
+# Get summary of completed phases for context
+get_completed_phases_summary() {
+    local file=$1
+    local current_phase=$2
+    local summary=""
+
+    for ((i=1; i<current_phase; i++)); do
+        if is_phase_completed "$file" "$i"; then
+            local phase_title
+            phase_title=$(grep "^## Phase $i:" "$file" | sed 's/## Phase [0-9]*: //' | sed 's/ ✅.*//')
+            summary+="- Phase $i ($phase_title): COMPLETED\n"
+        fi
+    done
+
+    echo -e "$summary"
+}
+
+# Run dynamic validation using Claude to detect and execute appropriate tools
+run_dynamic_validation() {
+    local phase_num=$1
+    local plan_file=$2
+
+    if [[ "$NO_VALIDATE" == true ]]; then
+        log_info "Skipping validation (--no-validate flag)"
+        return 0
+    fi
+
+    log_info "Running dynamic validation..."
+
+    local validation_prompt="Phase $phase_num implementation is complete. Now validate the changes.
+
+VALIDATION TASK:
+1. Detect available testing/validation tools in this project:
+   - Look for: composer.json (phpunit, phpstan), package.json (jest, vitest, eslint), Makefile, etc.
+   - Check for existing test commands in README or scripts/
+
+2. Run appropriate validation for the changes made:
+   - If PHP: phpstan analyze, phpunit (relevant tests only if identifiable)
+   - If JS/TS: eslint, type check, relevant tests
+   - If Python: pytest, mypy, ruff
+   - If other: appropriate linter/tests
+
+3. Focus on validating the files that were just modified, not the entire codebase.
+
+4. Report validation result clearly at the END of your response:
+   - SUCCESS: Output exactly 'VALIDATION_PASSED' on its own line
+   - FAILURE: Output exactly 'VALIDATION_FAILED: [brief error description]' on its own line
+   - NO TOOLS: Output exactly 'VALIDATION_SKIPPED: no validation tools detected' on its own line
+
+Execute validation now."
+
+    local validation_output
+    validation_output=$(mktemp)
+    TEMP_FILES+=("$validation_output")
+
+    claude -p "$validation_prompt" --dangerously-skip-permissions --output-format text 2>&1 | tee "$validation_output"
+
+    # Check result from last lines
+    local result
+    result=$(tail -10 "$validation_output")
+
+    if echo "$result" | grep -q "VALIDATION_FAILED"; then
+        local error_detail
+        error_detail=$(echo "$result" | grep "VALIDATION_FAILED" | head -1)
+        log_error "Validation failed: $error_detail"
+        rm -f "$validation_output"
+        return 1
+    elif echo "$result" | grep -q "VALIDATION_PASSED"; then
+        log_success "Validation passed"
+        rm -f "$validation_output"
+        return 0
+    elif echo "$result" | grep -q "VALIDATION_SKIPPED"; then
+        log_warn "Validation skipped: no tools detected"
+        rm -f "$validation_output"
+        return 0
+    else
+        log_warn "Validation result unclear, proceeding anyway"
+        rm -f "$validation_output"
+        return 0
+    fi
 }
 
 # Cache for commit command (discovered once per run)
@@ -468,36 +568,48 @@ execute_phase() {
     local plan_file=$1
     local phase_num=$2
     local total_phases=$3
-    
+
     log_phase "Phase $phase_num/$total_phases"
-    
+
     # Check if already completed
     if is_phase_completed "$plan_file" "$phase_num"; then
         log_warn "Phase $phase_num already completed, skipping..."
         return 0
     fi
-    
+
     # Get phase details
     local phase_content
     phase_content=$(get_phase_content "$plan_file" "$phase_num")
     local commit_msg
     commit_msg=$(get_phase_commit_message "$plan_file" "$phase_num")
-    
+
     if [[ -z "$commit_msg" ]]; then
         commit_msg="feat: implement phase $phase_num"
     fi
-    
+
     log_verbose "Phase content:\n$phase_content"
     log_info "Commit message: $commit_msg"
-    
+
     if [[ "$DRY_RUN" == true ]]; then
         log_info "[DRY-RUN] Would execute phase $phase_num"
         log_info "[DRY-RUN] Would commit with: $commit_msg"
         return 0
     fi
-    
-    # Build the prompt for Claude
-    local prompt="You are executing Phase $phase_num of an implementation plan.
+
+    # Build context from completed phases
+    local context_prefix=""
+    if [[ $phase_num -gt 1 ]]; then
+        local completed_summary
+        completed_summary=$(get_completed_phases_summary "$plan_file" "$phase_num")
+        if [[ -n "$completed_summary" ]]; then
+            context_prefix="CONTEXT - Previous phases completed:
+$completed_summary
+"
+        fi
+    fi
+
+    # Build the base prompt for Claude
+    local base_prompt="${context_prefix}You are executing Phase $phase_num of an implementation plan.
 
 Read the plan file at: $plan_file
 
@@ -514,59 +626,151 @@ IMPORTANT RULES:
 
 Begin implementation of Phase $phase_num now."
 
-    # Execute with Claude
-    log_info "Executing phase $phase_num with Claude..."
-    echo ""
+    # Build thinking budget option if specified
+    local thinking_opt=""
+    if [[ -n "$THINKING_BUDGET" ]]; then
+        thinking_opt="--thinking-budget $THINKING_BUDGET"
+        log_info "Using thinking budget: $THINKING_BUDGET tokens"
+    fi
 
-    local exit_code=0
-    local json_output
-    json_output=$(mktemp)
-    TEMP_FILES+=("$json_output")
+    # Retry loop
+    local retry_count=0
+    local prompt="$base_prompt"
+    local phase_success=false
 
-    # Generate a unique session ID for this phase
-    local session_id
-    session_id=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "phase-$phase_num-$(date +%s)")
+    while [[ $retry_count -le $MAX_RETRIES ]]; do
+        # Execute with Claude
+        if [[ $retry_count -eq 0 ]]; then
+            log_info "Executing phase $phase_num with Claude..."
+        else
+            log_warn "Retry attempt $retry_count/$MAX_RETRIES for phase $phase_num..."
+        fi
+        echo ""
 
-    # Run Claude with streaming output (visible in real-time)
-    claude -p "$prompt" --dangerously-skip-permissions --session-id "$session_id" || exit_code=$?
+        local exit_code=0
+        local json_output
+        json_output=$(mktemp)
+        TEMP_FILES+=("$json_output")
 
-    echo ""
+        local output_file
+        output_file=$(mktemp)
+        TEMP_FILES+=("$output_file")
 
-    if [[ $exit_code -ne 0 ]]; then
-        log_error "Phase $phase_num failed with exit code $exit_code"
-        mark_phase_failed "$plan_file" "$phase_num" "Claude execution failed"
+        # Generate a unique session ID for this phase attempt
+        local session_id
+        session_id=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "phase-$phase_num-attempt-$retry_count-$(date +%s)")
+
+        # Run Claude with streaming output and capture to file
+        claude -p "$prompt" --dangerously-skip-permissions --session-id "$session_id" $thinking_opt 2>&1 | tee "$output_file"
+        exit_code=${PIPESTATUS[0]}
+        LAST_OUTPUT="$output_file"
+
+        echo ""
+
+        if [[ $exit_code -ne 0 ]]; then
+            log_error "Phase $phase_num execution failed with exit code $exit_code"
+
+            retry_count=$((retry_count + 1))
+            if [[ $retry_count -le $MAX_RETRIES ]]; then
+                log_warn "Waiting ${RETRY_DELAY}s before retry..."
+                sleep "$RETRY_DELAY"
+
+                # Build retry prompt with error context
+                local error_context
+                error_context=$(tail -100 "$output_file" 2>/dev/null || echo "No output captured")
+                prompt="RETRY ATTEMPT $retry_count for Phase $phase_num
+
+PREVIOUS ERROR:
+The previous attempt failed. Here is the relevant output:
+$error_context
+
+INSTRUCTIONS:
+1. Analyze what went wrong in the previous attempt
+2. Fix the issue
+3. Complete the phase requirements
+4. Ensure the implementation is correct
+
+Original phase requirements:
+$phase_content"
+            else
+                log_error "Phase $phase_num failed after $MAX_RETRIES retries"
+                mark_phase_failed "$plan_file" "$phase_num" "Failed after $MAX_RETRIES retries"
+                rm -f "$json_output" "$output_file"
+                return 1
+            fi
+        else
+            # Execution succeeded, now run validation
+            if ! run_dynamic_validation "$phase_num" "$plan_file"; then
+                log_error "Phase $phase_num validation failed"
+
+                retry_count=$((retry_count + 1))
+                if [[ $retry_count -le $MAX_RETRIES ]]; then
+                    log_warn "Waiting ${RETRY_DELAY}s before retry..."
+                    sleep "$RETRY_DELAY"
+
+                    # Build retry prompt with validation failure context
+                    prompt="RETRY ATTEMPT $retry_count for Phase $phase_num
+
+PREVIOUS ISSUE:
+The implementation was completed but validation FAILED.
+Please review and fix the code to pass validation.
+
+INSTRUCTIONS:
+1. Review the changes you made
+2. Fix any issues that would cause tests/linting to fail
+3. Ensure the implementation meets the requirements
+4. Make sure the code compiles/passes static analysis
+
+Original phase requirements:
+$phase_content"
+                else
+                    log_error "Phase $phase_num failed validation after $MAX_RETRIES retries"
+                    mark_phase_failed "$plan_file" "$phase_num" "Validation failed after $MAX_RETRIES retries"
+                    rm -f "$json_output" "$output_file"
+                    return 1
+                fi
+            else
+                # Both execution and validation succeeded
+                phase_success=true
+
+                # Get metrics from ccusage for this session
+                if command -v ccusage &> /dev/null; then
+                    ccusage session --id "$session_id" --json 2>/dev/null > "$json_output" || true
+                fi
+
+                # Mark as completed
+                mark_phase_completed "$plan_file" "$phase_num"
+                log_success "Phase $phase_num completed successfully"
+
+                # Get git diff stats (lines added/deleted)
+                local lines_added=0
+                local lines_deleted=0
+                local git_stats
+                git_stats=$(git diff --shortstat 2>/dev/null)
+                if [[ -n "$git_stats" ]]; then
+                    lines_added=$(echo "$git_stats" | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
+                    lines_deleted=$(echo "$git_stats" | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
+                fi
+
+                # Show metrics from JSON output
+                show_phase_metrics "$phase_num" "$json_output" "$lines_added" "$lines_deleted"
+
+                # Cleanup
+                rm -f "$json_output" "$output_file"
+
+                # Commit
+                do_commit "$commit_msg"
+
+                break
+            fi
+        fi
+    done
+
+    if [[ "$phase_success" == true ]]; then
+        return 0
+    else
         return 1
     fi
-
-    # Get metrics from ccusage for this session (most reliable source)
-    if command -v ccusage &> /dev/null; then
-        ccusage session --id "$session_id" --json 2>/dev/null > "$json_output" || true
-    fi
-
-    # Mark as completed
-    mark_phase_completed "$plan_file" "$phase_num"
-    log_success "Phase $phase_num completed"
-
-    # Get git diff stats (lines added/deleted)
-    local lines_added=0
-    local lines_deleted=0
-    local git_stats
-    git_stats=$(git diff --shortstat 2>/dev/null)
-    if [[ -n "$git_stats" ]]; then
-        lines_added=$(echo "$git_stats" | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
-        lines_deleted=$(echo "$git_stats" | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
-    fi
-
-    # Show metrics from JSON output
-    show_phase_metrics "$phase_num" "$json_output" "$lines_added" "$lines_deleted"
-
-    # Cleanup
-    rm -f "$json_output"
-
-    # Commit
-    do_commit "$commit_msg"
-    
-    return 0
 }
 
 run_implementation() {
@@ -690,6 +894,22 @@ parse_args() {
             --no-commit)
                 NO_COMMIT=true
                 shift
+                ;;
+            --no-validate)
+                NO_VALIDATE=true
+                shift
+                ;;
+            --max-retries)
+                MAX_RETRIES="$2"
+                shift 2
+                ;;
+            --retry-delay)
+                RETRY_DELAY="$2"
+                shift 2
+                ;;
+            --thinking-budget)
+                THINKING_BUDGET="$2"
+                shift 2
                 ;;
             -v|--verbose)
                 VERBOSE=true
