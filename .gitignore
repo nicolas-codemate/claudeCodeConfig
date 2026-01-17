@@ -17,6 +17,7 @@ debug/
 file-history/
 paste-cache/
 logs/
+.update.lock
 
 # Cache & Statistics
 cache/
