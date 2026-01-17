@@ -37,6 +37,9 @@ plugins/installed_plugins.json
 plugins/known_marketplaces.json
 plugins/marketplaces/
 
+# Node.js dependencies
+node_modules/
+
 # OS files
 .DS_Store
 Thumbs.db
