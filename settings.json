@@ -24,7 +24,6 @@
       "Bash(docker compose:*)"
     ],
     "deny": [
-      "Bash(curl:*)",
       "Bash(rm -rf *)",
       "Bash(rm -rf /)",
       "Read(./.env)",

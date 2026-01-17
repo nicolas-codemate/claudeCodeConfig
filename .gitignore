@@ -16,6 +16,7 @@ plans/
 debug/
 file-history/
 paste-cache/
+logs/
 
 # Cache & Statistics
 cache/
