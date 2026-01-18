@@ -1,0 +1,687 @@
+---
+description: Main orchestrator for ticket resolution workflow - fetch, analyze, setup workspace, plan
+argument-hint: <ticket-id> [--auto] [--init] [--source youtrack|github] [--implement]
+allowed-tools: Read, Glob, Grep, Bash, Write, Task, AskUserQuestion, mcp__youtrack__get_issue, mcp__youtrack__get_issue_comments, mcp__youtrack__get_issue_attachments
+---
+
+# RESOLVE - Ticket Resolution Workflow Orchestrator
+
+This command orchestrates the complete ticket resolution workflow from fetch to implementation plan.
+
+## Input
+
+```
+$ARGUMENTS
+```
+
+## Parse Arguments
+
+Extract from arguments:
+- `ticket_id`: Required (except with --init) - the ticket identifier (e.g., PROJ-123, #456)
+- `--init`: Optional - initialize project configuration (no ticket needed)
+- `--auto`: Optional - automatic mode, no questions asked (default: interactive)
+- `--source`: Optional - force source (youtrack, github, file)
+- `--implement`: Optional - launch solo-implement.sh after planning
+
+**Mode determination**:
+- If `--init` present → INIT MODE (configure project, then stop)
+- If `--auto` present → AUTOMATIC MODE (no questions, use defaults/detection)
+- Otherwise → INTERACTIVE MODE (ask user at key decision points)
+
+---
+
+## STEP 0: PROJECT INITIALIZATION (if --init)
+
+If `--init` flag is present, run interactive configuration wizard:
+
+### 0.1 Welcome
+
+```markdown
+# Configuration du projet pour /resolve
+
+Ce wizard va creer le fichier `.claude/ticket-config.json` pour configurer
+le workflow de resolution de tickets dans ce projet.
+```
+
+### 0.2 Source Configuration
+
+```
+AskUserQuestion:
+  question: "Quelle source de tickets utilisez-vous principalement ?"
+  header: "Source"
+  options:
+    - label: "YouTrack"
+      description: "Tickets YouTrack via MCP"
+    - label: "GitHub Issues"
+      description: "Issues et PRs GitHub via gh CLI"
+    - label: "Les deux"
+      description: "Detection automatique selon le format"
+```
+
+If YouTrack selected or "Les deux":
+```
+AskUserQuestion:
+  question: "Quel est le prefixe de votre projet YouTrack ?"
+  header: "YouTrack"
+  options:
+    - label: "Entrer le prefixe"
+      description: "Ex: PROJ, MYAPP, BACK..."
+```
+→ User enters prefix (e.g., "PROJ")
+
+If GitHub selected or "Les deux":
+```
+AskUserQuestion:
+  question: "Quel est le repository GitHub ?"
+  header: "GitHub"
+  options:
+    - label: "Detecter automatiquement"
+      description: "Utiliser 'git remote get-url origin'"
+    - label: "Entrer manuellement"
+      description: "Format: owner/repo"
+```
+→ If auto-detect: run `git remote get-url origin` and extract owner/repo
+→ If manual: user enters "owner/repo"
+
+### 0.3 Branch Configuration
+
+```
+AskUserQuestion:
+  question: "Quelle est votre branche principale ?"
+  header: "Base branch"
+  options:
+    - label: "main"
+      description: "Convention moderne"
+    - label: "master"
+      description: "Convention classique"
+    - label: "develop"
+      description: "Gitflow - branche de dev"
+```
+
+```
+AskUserQuestion:
+  question: "Comment nommer les branches de feature ?"
+  header: "Prefixes"
+  options:
+    - label: "Standard (Recommended)"
+      description: "feat/, fix/, refactor/, docs/"
+    - label: "Simple"
+      description: "feature/, bugfix/"
+    - label: "Avec ticket"
+      description: "PROJ-123/description"
+```
+
+### 0.4 Complexity Defaults
+
+```
+AskUserQuestion:
+  question: "Comportement par defaut pour la complexite ?"
+  header: "Complexite"
+  options:
+    - label: "Detection automatique (Recommended)"
+      description: "Analyser le contenu du ticket"
+    - label: "Toujours simple"
+      description: "Workflow rapide sans exploration"
+    - label: "Toujours complet"
+      description: "AEP + Architect systematique"
+```
+
+### 0.5 Generate Configuration
+
+Build config object based on answers:
+
+```json
+{
+  "default_source": "auto|youtrack|github",
+  "youtrack": {
+    "project_prefix": "PROJ"
+  },
+  "github": {
+    "repo": "owner/repo"
+  },
+  "branches": {
+    "default_base": "main|master|develop",
+    "prefix_mapping": {
+      "bug": "fix",
+      "feature": "feat",
+      "task": "feat",
+      "refactoring": "refactor",
+      "documentation": "docs"
+    }
+  },
+  "complexity": {
+    "auto_detect": true|false,
+    "default_level": "simple|medium|complex"
+  }
+}
+```
+
+### 0.6 Save Configuration
+
+```bash
+mkdir -p .claude
+```
+
+Write to `.claude/ticket-config.json`.
+
+### 0.7 Confirm
+
+```markdown
+# Configuration sauvegardee
+
+Fichier cree: `.claude/ticket-config.json`
+
+```json
+{content of generated config}
+```
+
+## Utilisation
+
+```bash
+# Resoudre un ticket
+/resolve PROJ-123
+
+# Mode automatique
+/resolve PROJ-123 --auto
+
+# Modifier la config
+/resolve --init
+```
+
+Le projet est pret pour utiliser /resolve !
+```
+
+**STOP HERE** - Do not continue to ticket workflow.
+
+---
+
+## STEP 1: INITIALIZATION
+
+### 1.1 Load Configuration
+
+Read project config if exists:
+```bash
+cat .claude/ticket-config.json 2>/dev/null || echo "{}"
+```
+
+Merge with defaults from `~/.claude/skills/ticket-workflow/references/default-config.json`.
+
+### 1.2 Create Feature Directory
+
+```bash
+mkdir -p .claude/feature/{ticket-id}
+```
+
+### 1.3 Check for Resume
+
+If `.claude/feature/{ticket-id}/status.json` exists:
+- Read current status
+- If incomplete, ask user (in interactive mode):
+
+```
+AskUserQuestion:
+  question: "Un workflow existe deja pour {ticket-id} (etat: {state}). Que souhaitez-vous faire ?"
+  header: "Resume"
+  options:
+    - label: "Reprendre"
+      description: "Continuer depuis la derniere etape ({last_phase})"
+    - label: "Recommencer"
+      description: "Supprimer et repartir de zero"
+    - label: "Annuler"
+      description: "Ne rien faire"
+```
+
+In auto mode: always resume if possible.
+
+### 1.4 Initialize Status
+
+Create `.claude/feature/{ticket-id}/status.json`:
+```json
+{
+  "ticket_id": "{ticket-id}",
+  "started_at": "{ISO timestamp}",
+  "mode": "interactive|auto",
+  "state": "pending",
+  "phases": {
+    "fetch": "pending",
+    "analyze": "pending",
+    "workspace": "pending",
+    "plan": "pending"
+  }
+}
+```
+
+---
+
+## STEP 2: FETCH TICKET
+
+Read and apply the fetch-ticket skill from `~/.claude/skills/fetch-ticket/SKILL.md`.
+
+### 2.1 Detect Source
+
+If `--source` provided, use it. Otherwise detect:
+- Pattern `^[A-Z]+-\d+$` → YouTrack
+- Pattern `^#?\d+$` → GitHub
+- File path exists → File
+
+### 2.2 Retrieve Ticket
+
+**YouTrack**:
+```
+mcp__youtrack__get_issue(issueId: {ticket-id})
+mcp__youtrack__get_issue_comments(issueId: {ticket-id})
+```
+
+**GitHub**:
+```bash
+gh issue view {number} --json title,body,state,labels,assignees,comments
+# If fails, try PR:
+gh pr view {number} --json title,body,state,labels,assignees,comments
+```
+
+### 2.3 Save Ticket
+
+Write normalized content to `.claude/feature/{ticket-id}/ticket.md`.
+
+Update status: `phases.fetch = "completed"`.
+
+---
+
+## STEP 3: ANALYZE COMPLEXITY
+
+Read and apply the analyze-ticket skill from `~/.claude/skills/analyze-ticket/SKILL.md`.
+
+### 3.1 Calculate Complexity Score
+
+Analyze ticket content:
+- Apply scoring factors
+- Check for forcing labels
+- Determine suggested level: SIMPLE, MEDIUM, or COMPLEX
+
+### 3.2 Save Initial Analysis
+
+Write analysis to `.claude/feature/{ticket-id}/analysis.md`.
+
+### 3.3 INTERACTIVE: Confirm Workflow
+
+**In INTERACTIVE mode**, present analysis and ask:
+
+```
+Display ticket summary:
+- Title: {title}
+- Type: {type}
+- Priority: {priority}
+- Suggested complexity: {level} (score: {score})
+
+AskUserQuestion:
+  question: "Quel type de workflow souhaitez-vous utiliser ?"
+  header: "Workflow"
+  options:
+    - label: "Simple (Recommended)" if score <= 2
+      description: "Plan direct sans exploration - ideal pour les quick fixes"
+    - label: "Standard"
+      description: "Exploration legere + plan structure"
+    - label: "Complet (AEP)"
+      description: "Exploration approfondie + Architect - pour les features complexes"
+    - label: "Custom"
+      description: "Choisir les options manuellement"
+```
+
+If "Custom" selected, ask additional questions:
+
+```
+AskUserQuestion:
+  question: "Quelles phases activer ?"
+  header: "Phases"
+  multiSelect: true
+  options:
+    - label: "Exploration"
+      description: "Rechercher du code similaire et analyser l'impact"
+    - label: "AEP complet"
+      description: "3 agents d'exploration en parallele"
+    - label: "Architect"
+      description: "Utiliser le skill Architect pour le plan"
+```
+
+**In AUTO mode**: use detected complexity without asking.
+
+Update status with confirmed settings:
+- `complexity = "{level}"`
+- `workflow_type = "simple|standard|full"`
+- `phases.analyze = "completed"`
+
+---
+
+## STEP 4: EXPLORATION (based on workflow)
+
+### Simple Workflow
+Skip exploration. Proceed to workspace setup.
+Mark `phases.explore = "skipped"`.
+
+### Standard Workflow
+Launch 1 explore agent (Task tool with subagent_type=Explore):
+- Find similar existing code
+- Identify files to modify
+
+Append findings to `analysis.md`.
+
+### Full (AEP) Workflow
+Launch up to 3 explore agents IN PARALLEL:
+
+**Agent 1: Implementation Patterns**
+- Search for similar features
+- Find reusable patterns
+
+**Agent 2: Impact Analysis**
+- Trace dependencies
+- Identify affected components
+
+**Agent 3: Test Coverage**
+- Find related tests
+- Check testing patterns
+
+Append all findings to `analysis.md`.
+
+---
+
+## STEP 5: SETUP WORKSPACE
+
+### 5.1 Gather Branch Information
+
+Determine defaults:
+- Base branch: config `branches.default_base` or `main`
+- Branch prefix: from ticket type via `branches.prefix_mapping`
+- Branch name: `{prefix}/{ticket-id}-{slug}`
+
+### 5.2 INTERACTIVE: Confirm Branch Settings
+
+**In INTERACTIVE mode**, ask:
+
+```
+AskUserQuestion:
+  question: "Quelle branche de base utiliser ?"
+  header: "Base branch"
+  options:
+    - label: "main (Recommended)" if default is main
+      description: "Branche principale"
+    - label: "develop"
+      description: "Branche de developpement"
+    - label: "Branche courante ({current})"
+      description: "Rester sur {current_branch}"
+```
+
+Then confirm branch name:
+
+```
+AskUserQuestion:
+  question: "Nom de la branche a creer ?"
+  header: "Branche"
+  options:
+    - label: "{prefix}/{ticket-id}-{slug} (Recommended)"
+      description: "Nom genere automatiquement"
+    - label: "{prefix}/{ticket-id}"
+      description: "Sans le slug (plus court)"
+    - label: "Personnaliser"
+      description: "Entrer un nom custom"
+```
+
+**In AUTO mode**: use generated name without asking.
+
+### 5.3 Create Branch
+
+```bash
+git fetch origin
+git checkout {base-branch}
+git pull origin {base-branch}
+git checkout -b {branch-name}
+```
+
+### 5.4 Record Workspace
+
+Update status:
+```json
+{
+  "workspace": {
+    "type": "branch",
+    "name": "{branch-name}",
+    "base": "{base-branch}"
+  },
+  "phases.workspace": "completed"
+}
+```
+
+---
+
+## STEP 6: CREATE PLAN
+
+### 6.1 Determine Planning Approach
+
+Based on confirmed workflow:
+
+| Workflow | AEP | Architect | Plan Detail |
+|----------|-----|-----------|-------------|
+| Simple | No | No | Basic, 1-2 phases |
+| Standard | Partial | No | Standard, 2-4 phases |
+| Full | Full | Yes | Detailed, 3+ phases |
+
+### 6.2 Apply Architect Skill (if Full workflow)
+
+Read `~/.claude/skills/architect/SKILL.md` and apply:
+- Phase design checklists
+- Risk ordering principles
+- Atomic phase rules
+
+### 6.3 Generate Plan
+
+Create implementation plan with:
+- Context from ticket
+- Findings from exploration
+- Phased implementation steps
+- Validation criteria
+- Risk mitigations
+
+### 6.4 Save Plan
+
+Write to `.claude/feature/{ticket-id}/plan.md` with format:
+
+```markdown
+---
+feature: {slug}
+ticket_id: {ticket-id}
+created: {ISO timestamp}
+status: pending
+complexity: {level}
+total_phases: {N}
+---
+
+# Implementation Plan: {Ticket Title}
+
+## Summary
+
+{Brief description}
+
+## Context
+
+{What was learned from ticket and exploration}
+
+## Phase 1: {Phase Name}
+
+**Goal**: {What this phase achieves}
+
+**Files**:
+- `path/to/file.ext` - {Description}
+
+**Validation**: {Command or check}
+
+**Commit message**: `type: description`
+
+## Phase 2: ...
+
+...
+
+## Risks & Mitigations
+
+- {Risk}: {Mitigation}
+
+## Post-Implementation
+
+- [ ] Run full test suite
+- [ ] Update documentation
+- [ ] Create PR
+```
+
+Update status: `phases.plan = "completed"`, `state = "planned"`.
+
+---
+
+## STEP 7: FINAL CONFIRMATION
+
+### 7.1 Display Summary
+
+```markdown
+# Workflow Termine
+
+## Ticket
+- **ID**: {ticket-id}
+- **Titre**: {title}
+- **Source**: {source}
+
+## Analyse
+- **Complexite**: {level}
+- **Workflow**: {workflow_type}
+- **Exploration**: {exploration_status}
+
+## Workspace
+- **Branche**: {branch-name}
+- **Base**: {base-branch}
+
+## Plan
+- **Phases**: {N}
+- **Fichier**: .claude/feature/{ticket-id}/plan.md
+```
+
+### 7.2 INTERACTIVE: Choose Next Step
+
+**In INTERACTIVE mode**, ask:
+
+```
+AskUserQuestion:
+  question: "Que souhaitez-vous faire maintenant ?"
+  header: "Action"
+  options:
+    - label: "Voir le plan"
+      description: "Afficher le plan complet pour review"
+    - label: "Lancer l'implementation"
+      description: "Executer solo-implement.sh automatiquement"
+    - label: "Terminer"
+      description: "Arreter ici, implementer plus tard"
+```
+
+If "Voir le plan": display full plan content.
+If "Lancer l'implementation": proceed to step 8.
+If "Terminer": show manual implementation command.
+
+**In AUTO mode with --implement**: proceed to step 8 automatically.
+**In AUTO mode without --implement**: show summary and stop.
+
+---
+
+## STEP 8: IMPLEMENT (if requested)
+
+If implementation requested:
+
+```bash
+~/.claude/scripts/solo-implement.sh --feature {ticket-id}
+```
+
+Otherwise, inform user:
+
+```
+Pour lancer l'implementation plus tard:
+
+  solo-implement.sh --feature {ticket-id}
+
+Options disponibles:
+  --dry-run      Preview sans execution
+  --phase N      Executer une seule phase
+  --start N      Reprendre depuis la phase N
+  --verbose      Mode debug
+```
+
+---
+
+## ERROR HANDLING
+
+### Ticket Not Found
+```
+Erreur: Impossible de recuperer le ticket {ticket-id}
+- Verifiez l'ID du ticket
+- Verifiez vos permissions d'acces
+- YouTrack: Assurez-vous que le serveur MCP est configure
+- GitHub: Lancez 'gh auth login' si necessaire
+```
+
+### Branch Creation Failed
+```
+Erreur: Impossible de creer la branche {branch-name}
+- La branche existe peut-etre deja
+- Verifiez git status pour les conflits
+- Assurez-vous d'avoir les droits d'ecriture
+```
+
+### Planning Failed
+```
+Erreur: Impossible de generer le plan d'implementation
+- Le ticket est peut-etre trop vague
+- Ajoutez plus de contexte au ticket
+- Essayez le workflow "Simple"
+```
+
+---
+
+## MODE SUMMARY
+
+| Aspect | Interactive (default) | Auto (--auto) |
+|--------|----------------------|---------------|
+| Resume | Demande confirmation | Reprend auto |
+| Workflow | Choix utilisateur | Detection auto |
+| Base branch | Choix utilisateur | Config/default |
+| Branch name | Confirmation | Generation auto |
+| Next step | Choix utilisateur | Selon --implement |
+
+---
+
+## CONFIGURATION REFERENCE
+
+Project config in `.claude/ticket-config.json`:
+```json
+{
+  "default_source": "auto",
+  "branches": {
+    "default_base": "main",
+    "prefix_mapping": {"bug": "fix", "feature": "feat"}
+  },
+  "complexity": {
+    "simple_labels": ["quick-fix"],
+    "complex_labels": ["architecture"]
+  }
+}
+```
+
+---
+
+## LANGUAGE
+
+All user communication in French.
+Technical output (git, code) in English.
+
+---
+
+## NOW
+
+Begin workflow for: `$ARGUMENTS`
+
+1. Parse ticket ID and detect mode (interactive by default, auto if --auto)
+2. Load configuration
+3. Execute phases with appropriate prompts based on mode
+4. Guide user through decisions or make automatic choices

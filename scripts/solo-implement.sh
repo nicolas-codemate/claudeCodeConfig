@@ -16,7 +16,8 @@
 #   solo-implement.sh [OPTIONS]
 #
 # Options:
-#   -p, --plan FILE         Use specific plan file (default: latest in .claude/implementation/)
+#   -p, --plan FILE         Use specific plan file (default: auto-detect)
+#   -f, --feature ID        Use plan from .claude/feature/{ID}/plan.md
 #   -s, --start N           Start from phase N (default: 1 or next pending)
 #   -e, --end N             Stop after phase N (default: all phases)
 #   --phase N               Execute only phase N
@@ -28,6 +29,11 @@
 #   --thinking-budget N     Enable extended thinking with N tokens budget
 #   -v, --verbose           Verbose output
 #   -h, --help              Show this help
+#
+# Plan Search Order:
+#   1. Explicit --plan or --feature argument
+#   2. Most recent .claude/feature/*/plan.md (from /resolve workflow)
+#   3. Most recent .claude/implementation/*.md (from /create-plan)
 #
 # Requirements:
 #   - Claude Code CLI installed and authenticated
@@ -50,7 +56,9 @@ BOLD='\033[1m'
 
 # Configuration
 PLAN_DIR=".claude/implementation"
+FEATURE_DIR=".claude/feature"
 PLAN_FILE=""
+FEATURE_ID=""
 START_PHASE=""
 END_PHASE=""
 SINGLE_PHASE=""
@@ -260,16 +268,67 @@ show_help() {
 }
 
 find_latest_plan() {
-    local latest
-    latest=$(find "$PLAN_DIR" -maxdepth 1 -name "*.md" -type f 2>/dev/null | sort -r | head -1)
+    local latest=""
+    local feature_plan=""
+    local implementation_plan=""
+
+    # Search in .claude/feature/*/plan.md (from /resolve workflow)
+    if [[ -d "$FEATURE_DIR" ]]; then
+        feature_plan=$(find "$FEATURE_DIR" -name "plan.md" -type f 2>/dev/null | while read -r f; do
+            echo "$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null) $f"
+        done | sort -rn | head -1 | cut -d' ' -f2-)
+    fi
+
+    # Search in .claude/implementation/*.md (from /create-plan)
+    if [[ -d "$PLAN_DIR" ]]; then
+        implementation_plan=$(find "$PLAN_DIR" -maxdepth 1 -name "*.md" -type f 2>/dev/null | sort -r | head -1)
+    fi
+
+    # Prefer feature plan if more recent, otherwise implementation plan
+    if [[ -n "$feature_plan" && -n "$implementation_plan" ]]; then
+        local feature_time implementation_time
+        feature_time=$(stat -c %Y "$feature_plan" 2>/dev/null || stat -f %m "$feature_plan" 2>/dev/null)
+        implementation_time=$(stat -c %Y "$implementation_plan" 2>/dev/null || stat -f %m "$implementation_plan" 2>/dev/null)
+        if [[ "$feature_time" -ge "$implementation_time" ]]; then
+            latest="$feature_plan"
+        else
+            latest="$implementation_plan"
+        fi
+    elif [[ -n "$feature_plan" ]]; then
+        latest="$feature_plan"
+    elif [[ -n "$implementation_plan" ]]; then
+        latest="$implementation_plan"
+    fi
 
     if [[ -z "$latest" ]]; then
-        log_error "No plan files found in $PLAN_DIR"
-        log_info "Create a plan first with: /create-plan <your feature>"
+        log_error "No plan files found"
+        log_info "Searched in:"
+        log_info "  - $FEATURE_DIR/*/plan.md (from /resolve workflow)"
+        log_info "  - $PLAN_DIR/*.md (from /create-plan)"
+        log_info ""
+        log_info "Create a plan first with:"
+        log_info "  /resolve <ticket-id>  - Full ticket workflow"
+        log_info "  /create-plan <feature> - Direct plan creation"
         exit 1
     fi
 
     echo "$latest"
+}
+
+# Find plan for a specific feature/ticket ID
+find_feature_plan() {
+    local feature_id=$1
+    local plan_path="$FEATURE_DIR/$feature_id/plan.md"
+
+    if [[ ! -f "$plan_path" ]]; then
+        log_error "Plan not found for feature: $feature_id"
+        log_info "Expected path: $plan_path"
+        log_info ""
+        log_info "Create the plan first with: /resolve $feature_id"
+        exit 1
+    fi
+
+    echo "$plan_path"
 }
 
 # Ensure we're not on main/master branch
@@ -875,6 +934,10 @@ parse_args() {
                 PLAN_FILE="$2"
                 shift 2
                 ;;
+            -f|--feature)
+                FEATURE_ID="$2"
+                shift 2
+                ;;
             -s|--start)
                 START_PHASE="$2"
                 shift 2
@@ -960,7 +1023,11 @@ main() {
     fi
     
     # Find or validate plan file
-    if [[ -z "$PLAN_FILE" ]]; then
+    if [[ -n "$FEATURE_ID" ]]; then
+        # Use --feature flag: look in .claude/feature/{id}/plan.md
+        PLAN_FILE=$(find_feature_plan "$FEATURE_ID")
+    elif [[ -z "$PLAN_FILE" ]]; then
+        # Auto-detect: search both directories
         PLAN_FILE=$(find_latest_plan)
     fi
     

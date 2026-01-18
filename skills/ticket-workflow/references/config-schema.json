@@ -1,0 +1,182 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Ticket Workflow Configuration",
+  "description": "Configuration for the ticket resolution workflow system",
+  "type": "object",
+  "properties": {
+    "default_source": {
+      "type": "string",
+      "enum": ["auto", "youtrack", "github", "file"],
+      "default": "auto",
+      "description": "Default source for ticket retrieval. 'auto' detects based on ticket ID pattern"
+    },
+    "youtrack": {
+      "type": "object",
+      "description": "YouTrack-specific configuration",
+      "properties": {
+        "project_prefix": {
+          "type": "string",
+          "description": "Default project prefix for YouTrack tickets (e.g., 'PROJ')",
+          "pattern": "^[A-Z][A-Z0-9]*$"
+        },
+        "base_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "YouTrack instance base URL (optional if MCP is configured)"
+        }
+      }
+    },
+    "github": {
+      "type": "object",
+      "description": "GitHub-specific configuration",
+      "properties": {
+        "repo": {
+          "type": "string",
+          "description": "Default repository in owner/repo format",
+          "pattern": "^[^/]+/[^/]+$"
+        },
+        "issue_prefix": {
+          "type": "string",
+          "default": "#",
+          "description": "Prefix used to identify GitHub issues"
+        }
+      }
+    },
+    "workspace": {
+      "type": "object",
+      "description": "Workspace setup configuration",
+      "properties": {
+        "prefer_worktree": {
+          "type": "boolean",
+          "default": false,
+          "description": "Prefer git worktrees over branches for isolation"
+        },
+        "worktree_parent": {
+          "type": "string",
+          "default": "../worktrees",
+          "description": "Parent directory for worktrees relative to repo root"
+        },
+        "auto_stash": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically stash uncommitted changes before workspace setup"
+        }
+      }
+    },
+    "branches": {
+      "type": "object",
+      "description": "Branch naming and management configuration",
+      "properties": {
+        "default_base": {
+          "type": "string",
+          "default": "main",
+          "description": "Default base branch for new feature branches"
+        },
+        "prefix_mapping": {
+          "type": "object",
+          "description": "Mapping of ticket types to branch prefixes",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {
+            "bug": "fix",
+            "feature": "feat",
+            "task": "feat",
+            "improvement": "feat",
+            "refactoring": "refactor",
+            "documentation": "docs"
+          }
+        },
+        "include_ticket_id": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include ticket ID in branch name"
+        },
+        "slug_max_length": {
+          "type": "integer",
+          "default": 50,
+          "description": "Maximum length for the slug part of branch name"
+        }
+      }
+    },
+    "complexity": {
+      "type": "object",
+      "description": "Complexity detection configuration",
+      "properties": {
+        "auto_detect": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically detect complexity from ticket content"
+        },
+        "default_level": {
+          "type": "string",
+          "enum": ["simple", "medium", "complex"],
+          "default": "medium",
+          "description": "Default complexity when auto-detection is disabled"
+        },
+        "simple_labels": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["quick-fix", "typo", "documentation", "trivial"],
+          "description": "Labels that indicate simple complexity"
+        },
+        "complex_labels": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["needs-analysis", "architecture", "breaking-change", "migration"],
+          "description": "Labels that indicate complex complexity"
+        },
+        "simple_threshold": {
+          "type": "integer",
+          "default": 2,
+          "description": "Score threshold below which ticket is considered simple"
+        },
+        "complex_threshold": {
+          "type": "integer",
+          "default": 6,
+          "description": "Score threshold above which ticket is considered complex"
+        }
+      }
+    },
+    "planning": {
+      "type": "object",
+      "description": "Planning phase configuration",
+      "properties": {
+        "use_architect": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use Architect skill for complex tickets"
+        },
+        "use_aep": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use AEP methodology for exploration"
+        },
+        "max_explore_agents": {
+          "type": "integer",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 5,
+          "description": "Maximum parallel explore agents for AEP"
+        }
+      }
+    },
+    "storage": {
+      "type": "object",
+      "description": "Storage paths configuration",
+      "properties": {
+        "feature_dir": {
+          "type": "string",
+          "default": ".claude/feature",
+          "description": "Directory for feature-specific files (relative to project root)"
+        },
+        "keep_completed": {
+          "type": "boolean",
+          "default": true,
+          "description": "Keep files after ticket completion"
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

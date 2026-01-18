@@ -1,0 +1,45 @@
+{
+  "default_source": "auto",
+  "youtrack": {
+    "project_prefix": ""
+  },
+  "github": {
+    "repo": "",
+    "issue_prefix": "#"
+  },
+  "workspace": {
+    "prefer_worktree": false,
+    "worktree_parent": "../worktrees",
+    "auto_stash": true
+  },
+  "branches": {
+    "default_base": "main",
+    "prefix_mapping": {
+      "bug": "fix",
+      "feature": "feat",
+      "task": "feat",
+      "improvement": "feat",
+      "refactoring": "refactor",
+      "documentation": "docs"
+    },
+    "include_ticket_id": true,
+    "slug_max_length": 50
+  },
+  "complexity": {
+    "auto_detect": true,
+    "default_level": "medium",
+    "simple_labels": ["quick-fix", "typo", "documentation", "trivial"],
+    "complex_labels": ["needs-analysis", "architecture", "breaking-change", "migration"],
+    "simple_threshold": 2,
+    "complex_threshold": 6
+  },
+  "planning": {
+    "use_architect": true,
+    "use_aep": true,
+    "max_explore_agents": 3
+  },
+  "storage": {
+    "feature_dir": ".claude/feature",
+    "keep_completed": true
+  }
+}
