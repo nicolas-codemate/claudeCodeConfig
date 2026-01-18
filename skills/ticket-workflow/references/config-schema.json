@@ -49,12 +49,17 @@
         "prefer_worktree": {
           "type": "boolean",
           "default": false,
-          "description": "Prefer git worktrees over branches for isolation"
+          "description": "Prefer git worktrees over branches (only if tooling detected)"
         },
         "worktree_parent": {
           "type": "string",
           "default": "../worktrees",
           "description": "Parent directory for worktrees relative to repo root"
+        },
+        "worktree_command": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Explicit command for worktree creation. Use {{ticket_id}} and {{branch_name}} as placeholders. Example: 'make worktree-new TICKET={{ticket_id}}'"
         },
         "auto_stash": {
           "type": "boolean",

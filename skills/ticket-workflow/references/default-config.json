@@ -10,6 +10,7 @@
   "workspace": {
     "prefer_worktree": false,
     "worktree_parent": "../worktrees",
+    "worktree_command": null,
     "auto_stash": true
   },
   "branches": {

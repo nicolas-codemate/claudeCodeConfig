@@ -16,8 +16,8 @@
 
 ## Structure
 
-| Dossier | Description |
-|---------|-------------|
+| Directory | Description |
+|-----------|-------------|
 | `agents/` | Custom agent definitions |
 | `commands/` | Slash commands (resolve, commit, fix-ci...) |
 | `hooks/` | Pre/post tool use hooks |
@@ -34,121 +34,121 @@
 
 ## Ticket Resolution Workflow
 
-Systeme modulaire pour la resolution automatisee de tickets, integrant YouTrack (MCP) et GitHub (gh CLI).
+Modular system for automated ticket resolution, integrating YouTrack (MCP) and GitHub (gh CLI).
 
-### Vue d'ensemble
+### Overview
 
 ```
 /resolve PROJ-123
     │
-    ├─► Detection source (YouTrack/GitHub/Fichier)
+    ├─► Source detection (YouTrack/GitHub/File)
     ├─► Fetch ticket → ticket.md
-    ├─► Analyse complexite (SIMPLE/MEDIUM/COMPLEX)
-    │   └─► Si COMPLEX: Exploration AEP parallele
-    ├─► Setup workspace (branche)
-    ├─► Creation plan → plan.md
-    └─► Implementation (optionnelle) via solo-implement.sh
+    ├─► Analyze complexity (SIMPLE/MEDIUM/COMPLEX)
+    │   └─► If COMPLEX: Parallel AEP exploration
+    ├─► Setup workspace (branch)
+    ├─► Create plan → plan.md
+    └─► Implementation (optional) via solo-implement.sh
 ```
 
-### Commandes disponibles
+### Available Commands
 
-| Commande | Description |
-|----------|-------------|
-| `/resolve <ticket-id>` | Workflow complet de resolution |
-| `/fetch-ticket <ticket-id>` | Recuperer un ticket uniquement |
-| `/analyze-ticket <ticket-id>` | Analyser la complexite |
-| `/plan-ticket <ticket-id>` | Creer un plan depuis un ticket existant |
+| Command | Description |
+|---------|-------------|
+| `/resolve <ticket-id>` | Complete resolution workflow |
+| `/fetch-ticket <ticket-id>` | Fetch a ticket only |
+| `/analyze-ticket <ticket-id>` | Analyze complexity |
+| `/plan-ticket <ticket-id>` | Create plan from existing ticket |
 
-### Modes de /resolve
+### /resolve Modes
 
 | Mode | Description |
 |------|-------------|
-| **Interactif** (defaut) | Pose des questions a chaque etape cle |
-| **Automatique** (`--auto`) | Utilise les valeurs detectees/configurees |
+| **Interactive** (default) | Asks questions at each key step |
+| **Automatic** (`--auto`) | Uses detected/configured values |
 
-### Options de /resolve
+### /resolve Options
 
 ```bash
-# Initialiser la config du projet (wizard interactif)
+# Initialize project config (interactive wizard)
 /resolve --init
 
-# Mode interactif (defaut) - pose des questions
+# Interactive mode (default) - asks questions
 /resolve PROJ-123
 
-# Mode automatique - aucune question
+# Automatic mode - no questions
 /resolve PROJ-123 --auto
 
-# Mode auto avec implementation immediate
+# Auto mode with immediate implementation
 /resolve PROJ-123 --auto --implement
 
-# Forcer la source
+# Force source
 /resolve PROJ-123 --source youtrack
 ```
 
-### Questions en mode interactif
+### Interactive Mode Questions
 
-1. **Resume** : Si un workflow existe deja, reprendre ou recommencer ?
-2. **Workflow** : Simple / Standard / Complet (AEP) / Custom ?
-3. **Branche de base** : main / develop / branche courante ?
-4. **Nom de branche** : Genere automatiquement / court / personnalise ?
-5. **Action finale** : Voir le plan / Lancer l'implementation / Terminer ?
+1. **Resume**: If workflow exists, resume or restart?
+2. **Workflow**: Simple / Standard / Full (AEP) / Custom?
+3. **Base branch**: main / develop / current branch?
+4. **Branch name**: Auto-generated / short / custom?
+5. **Final action**: View plan / Start implementation / Finish?
 
-### Niveaux de complexite
+### Complexity Levels
 
-| Niveau | Score | Exploration | Planning |
-|--------|-------|-------------|----------|
-| SIMPLE | 0-2 | Skip | Basique |
+| Level | Score | Exploration | Planning |
+|-------|-------|-------------|----------|
+| SIMPLE | 0-2 | Skip | Basic |
 | MEDIUM | 3-5 | 1 agent | Standard |
-| COMPLEX | 6+ | 3 agents AEP | Architect |
+| COMPLEX | 6+ | 3 AEP agents | Architect |
 
-### Fichiers generes
+### Generated Files
 
-Chaque ticket cree un dossier dans le projet :
+Each ticket creates a folder in the project:
 
 ```
-{PROJET}/.claude/feature/{ticket-id}/
-├── status.json   # Etat du workflow (pour reprise)
-├── ticket.md     # Contenu du ticket original
-├── analysis.md   # Analyse de complexite
-└── plan.md       # Plan d'implementation
+{PROJECT}/.claude/feature/{ticket-id}/
+├── status.json   # Workflow state (for resume)
+├── ticket.md     # Original ticket content
+├── analysis.md   # Complexity analysis
+└── plan.md       # Implementation plan
 ```
 
 ### Implementation
 
-Apres la planification, lancer l'implementation :
+After planning, start the implementation:
 
 ```bash
-# Via le flag --implement
+# Via the --implement flag
 /resolve PROJ-123 --implement
 
-# Ou manuellement
+# Or manually
 solo-implement.sh --feature PROJ-123
 
-# Ou depuis .claude/implementation (ancien workflow)
+# Or from .claude/implementation (legacy workflow)
 solo-implement.sh
 ```
 
 ---
 
-## Configuration Projet
+## Project Configuration
 
-Le systeme peut etre configure par projet via un fichier `.claude/ticket-config.json`.
+The system can be configured per-project via a `.claude/ticket-config.json` file.
 
-### Setup rapide
+### Quick Setup
 
-**Option 1 : Wizard interactif (recommande)**
+**Option 1: Interactive wizard (recommended)**
 
 ```bash
-# Dans votre projet
+# In your project
 /resolve --init
 ```
 
-Le wizard pose des questions et genere la config automatiquement.
+The wizard asks questions and generates the config automatically.
 
-**Option 2 : Creation manuelle**
+**Option 2: Manual creation**
 
 ```bash
-# Dans votre projet
+# In your project
 mkdir -p .claude
 cat > .claude/ticket-config.json << 'EOF'
 {
@@ -163,7 +163,7 @@ cat > .claude/ticket-config.json << 'EOF'
 EOF
 ```
 
-### Configuration complete
+### Full Configuration
 
 ```json
 {
@@ -181,6 +181,7 @@ EOF
   "workspace": {
     "prefer_worktree": false,
     "worktree_parent": "../worktrees",
+    "worktree_command": null,
     "auto_stash": true
   },
 
@@ -219,50 +220,103 @@ EOF
 }
 ```
 
-### Options de configuration
+### Configuration Options
 
 #### `default_source`
-- `"auto"` : Detection automatique selon le pattern du ticket ID
-- `"youtrack"` : Toujours utiliser YouTrack
-- `"github"` : Toujours utiliser GitHub
-- `"file"` : Toujours utiliser un fichier local
+- `"auto"`: Auto-detect based on ticket ID pattern
+- `"youtrack"`: Always use YouTrack
+- `"github"`: Always use GitHub
+- `"file"`: Always use local file
 
 #### `youtrack.project_prefix`
-Prefixe par defaut pour les tickets YouTrack. Permet d'utiliser `/resolve 123` au lieu de `/resolve PROJ-123`.
+Default prefix for YouTrack tickets. Allows using `/resolve 123` instead of `/resolve PROJ-123`.
 
 #### `github.repo`
-Repository par defaut au format `owner/repo`. Permet d'utiliser `/resolve #123` sans specifier le repo.
+Default repository in `owner/repo` format. Allows using `/resolve #123` without specifying the repo.
 
 #### `branches.default_base`
-Branche de base pour creer les feature branches. Typiquement `main`, `master`, ou `develop`.
+Base branch for creating feature branches. Typically `main`, `master`, or `develop`.
 
 #### `branches.prefix_mapping`
-Mapping entre les types de tickets et les prefixes de branches :
+Mapping between ticket types and branch prefixes:
 - Bug → `fix/proj-123-...`
 - Feature → `feat/proj-123-...`
 - Refactoring → `refactor/proj-123-...`
 
 #### `complexity.simple_labels` / `complex_labels`
-Labels qui forcent le niveau de complexite, independamment du score calcule.
+Labels that force complexity level, regardless of calculated score.
 
 #### `complexity.simple_threshold` / `complex_threshold`
-Seuils de score pour la classification automatique :
+Score thresholds for automatic classification:
 - Score ≤ 2 → SIMPLE
 - Score ≥ 6 → COMPLEX
-- Entre les deux → MEDIUM
+- In between → MEDIUM
 
 ---
 
-## Skills disponibles
+## Worktree Support
+
+Worktrees allow working on multiple tickets in parallel in separate directories. **However**, they require specific setup (docker, .env, etc.).
+
+### Automatic Detection
+
+The workflow automatically detects if the project supports worktrees by searching for:
+- Makefile targets: `worktree:`, `worktree-new:`, `wt-setup:`
+- Scripts: `scripts/*worktree*`, `bin/*wt*`
+- npm/composer scripts containing "worktree"
+- Documentation mentioning worktree
+
+### Enabling Worktree Support
+
+**Option 1: Add a Makefile target**
+
+```makefile
+# In your Makefile
+WORKTREE_DIR ?= ../worktrees
+
+worktree-new: ## Create worktree for ticket
+ifndef TICKET
+	$(error Usage: make worktree-new TICKET=PROJ-123)
+endif
+	@mkdir -p $(WORKTREE_DIR)
+	git worktree add $(WORKTREE_DIR)/$(TICKET) -b feat/$(TICKET)
+	@cp -n .env.example $(WORKTREE_DIR)/$(TICKET)/.env 2>/dev/null || true
+	@echo "Worktree ready: cd $(WORKTREE_DIR)/$(TICKET)"
+
+worktree-remove: ## Remove worktree
+	git worktree remove $(WORKTREE_DIR)/$(TICKET) --force
+```
+
+**Option 2: Configure explicitly**
+
+```json
+{
+  "workspace": {
+    "worktree_command": "make worktree-new TICKET={{ticket_id}}"
+  }
+}
+```
+
+### Behavior
+
+| Situation | Action |
+|-----------|--------|
+| Tooling detected | Offers branch/worktree choice |
+| No tooling | Uses branch (no worktree mention) |
+| `prefer_worktree: true` without tooling | Warning + fallback to branch |
+
+---
+
+## Available Skills
 
 | Skill | Description |
 |-------|-------------|
-| `aep` | Methodologie Analyse-Explore-Plan |
-| `architect` | Guidelines architecture pour plans de qualite |
-| `fetch-ticket` | Recuperation multi-source de tickets |
-| `analyze-ticket` | Analyse de complexite et scoring |
-| `setup-workspace` | Creation de branches/worktrees |
-| `ticket-workflow` | Machine a etats et coordination |
+| `aep` | Analyze-Explore-Plan methodology |
+| `architect` | Architecture guidelines for quality plans |
+| `fetch-ticket` | Multi-source ticket retrieval |
+| `analyze-ticket` | Complexity analysis and scoring |
+| `setup-workspace` | Branch/worktree creation |
+| `ticket-workflow` | State machine and coordination |
 
 ---
 
@@ -270,36 +324,36 @@ Seuils de score pour la classification automatique :
 
 ### solo-implement.sh
 
-Orchestrateur d'implementation automatisee par phases.
+Automated phased implementation orchestrator.
 
 ```bash
-# Depuis le workflow ticket
+# From ticket workflow
 solo-implement.sh --feature PROJ-123
 
-# Depuis /create-plan
+# From /create-plan
 solo-implement.sh
 
 # Options
 solo-implement.sh --feature PROJ-123 --dry-run      # Preview
-solo-implement.sh --feature PROJ-123 --phase 2      # Une seule phase
-solo-implement.sh --feature PROJ-123 --start 3      # Reprendre depuis phase 3
-solo-implement.sh --feature PROJ-123 --no-commit    # Sans commits auto
-solo-implement.sh --feature PROJ-123 --no-validate  # Sans validation
-solo-implement.sh --feature PROJ-123 --verbose      # Mode debug
+solo-implement.sh --feature PROJ-123 --phase 2      # Single phase only
+solo-implement.sh --feature PROJ-123 --start 3      # Resume from phase 3
+solo-implement.sh --feature PROJ-123 --no-commit    # Without auto commits
+solo-implement.sh --feature PROJ-123 --no-validate  # Without validation
+solo-implement.sh --feature PROJ-123 --verbose      # Debug mode
 ```
 
-**Ordre de recherche des plans** :
-1. `--plan FILE` ou `--feature ID` explicite
-2. Plus recent dans `.claude/feature/*/plan.md`
-3. Plus recent dans `.claude/implementation/*.md`
+**Plan search order**:
+1. Explicit `--plan FILE` or `--feature ID`
+2. Most recent in `.claude/feature/*/plan.md`
+3. Most recent in `.claude/implementation/*.md`
 
 ---
 
-## Prerequis
+## Prerequisites
 
 ### YouTrack (MCP)
 
-Le serveur MCP YouTrack doit etre configure dans `~/.claude/settings.json` :
+The YouTrack MCP server must be configured in `~/.claude/settings.json`:
 
 ```json
 {
@@ -320,87 +374,87 @@ Le serveur MCP YouTrack doit etre configure dans `~/.claude/settings.json` :
 
 ```bash
 # Installation
-sudo apt install gh  # ou brew install gh
+sudo apt install gh  # or brew install gh
 
-# Authentification
+# Authentication
 gh auth login
 ```
 
 ---
 
-## Exemples complets
+## Complete Examples
 
-### Exemple 1 : Workflow interactif complet (YouTrack)
+### Example 1: Full Interactive Workflow (YouTrack)
 
 ```bash
-# 1. INITIALISATION DU PROJET (une seule fois)
+# 1. PROJECT INITIALIZATION (once)
 $ cd /path/to/my-project
 $ claude
 
 > /resolve --init
 
-? Quelle source de tickets utilisez-vous ?
+? What ticket source do you use?
   ● YouTrack
 
-? Prefixe du projet YouTrack ?
+? YouTrack project prefix?
   > MYAPP
 
-? Branche principale ?
+? Main branch?
   ● main
 
-? Prefixes de branches ?
+? Branch prefixes?
   ● Standard (feat/, fix/, ...)
 
-✓ Configuration sauvegardee: .claude/ticket-config.json
+✓ Configuration saved: .claude/ticket-config.json
 ```
 
 ```bash
-# 2. RESOLUTION D'UN TICKET
+# 2. RESOLVING A TICKET
 > /resolve MYAPP-123
 
-Ticket recupere: "Ajouter l'export CSV des utilisateurs"
-Type: Feature | Priorite: Normal
-Complexite suggeree: MEDIUM (score: 4)
+Ticket fetched: "Add CSV export for users"
+Type: Feature | Priority: Normal
+Suggested complexity: MEDIUM (score: 4)
 
-? Quel workflow utiliser ?
-  ● Standard - Exploration legere + plan structure
+? Which workflow to use?
+  ● Standard - Light exploration + structured plan
 
-? Branche de base ?
+? Base branch?
   ● main
 
-? Nom de la branche ?
-  ● feat/myapp-123-ajouter-export-csv-utilisateurs
+? Branch name?
+  ● feat/myapp-123-add-csv-export-users
 
-✓ Branche creee
-✓ Exploration terminee (fichiers similaires trouves)
-✓ Plan genere: .claude/feature/myapp-123/plan.md
+✓ Branch created
+✓ Exploration completed (similar files found)
+✓ Plan generated: .claude/feature/myapp-123/plan.md
 
-? Que faire maintenant ?
-  ● Voir le plan
+? What do you want to do now?
+  ● View the plan
 
-# Implementation Plan: Ajouter l'export CSV des utilisateurs
+# Implementation Plan: Add CSV export for users
 
-## Phase 1: Creer le service d'export
+## Phase 1: Create export service
 **Files**: src/Service/UserExportService.php
 **Validation**: bin/phpunit tests/Service/UserExportServiceTest.php
 
-## Phase 2: Ajouter l'endpoint API
+## Phase 2: Add API endpoint
 **Files**: src/Controller/Api/UserController.php
 **Validation**: bin/phpunit tests/Controller/Api/UserControllerTest.php
 
-## Phase 3: Ajouter le bouton dans l'interface
+## Phase 3: Add button to interface
 **Files**: assets/js/pages/Users.vue
 **Validation**: npm run test
 
-? Que faire maintenant ?
-  ● Terminer
+? What do you want to do now?
+  ● Finish
 
-Pour implementer plus tard:
+To implement later:
   solo-implement.sh --feature myapp-123
 ```
 
 ```bash
-# 3. IMPLEMENTATION AUTOMATISEE (hors de Claude)
+# 3. AUTOMATED IMPLEMENTATION (outside Claude)
 $ solo-implement.sh --feature myapp-123
 
 ╔═══════════════════════════════════════════════════════════╗
@@ -408,11 +462,11 @@ $ solo-implement.sh --feature myapp-123
 ╚═══════════════════════════════════════════════════════════╝
 
 Using plan: .claude/feature/myapp-123/plan.md
-Feature: ajouter-export-csv-utilisateurs
+Feature: add-csv-export-users
 Total phases: 3
 
 ═══════════════════════════════════════════════════════════
-  Phase 1/3: Creer le service d'export
+  Phase 1/3: Create export service
 ═══════════════════════════════════════════════════════════
 
 [Claude implements UserExportService.php...]
@@ -429,7 +483,7 @@ Total phases: 3
 └─────────────────────────────────────────────────────────┘
 
 ═══════════════════════════════════════════════════════════
-  Phase 2/3: Ajouter l'endpoint API
+  Phase 2/3: Add API endpoint
 ═══════════════════════════════════════════════════════════
 
 [Claude implements API endpoint...]
@@ -438,7 +492,7 @@ Total phases: 3
 ✓ Committed: feat(api): add CSV export endpoint for users
 
 ═══════════════════════════════════════════════════════════
-  Phase 3/3: Ajouter le bouton dans l'interface
+  Phase 3/3: Add button to interface
 ═══════════════════════════════════════════════════════════
 
 [Claude implements Vue component...]
@@ -466,7 +520,7 @@ Next steps:
 ```
 
 ```bash
-# 4. VERIFICATION ET PR
+# 4. VERIFICATION AND PR
 $ git log --oneline -n 4
 a1b2c3d feat(ui): add export button to users page
 e4f5g6h feat(api): add CSV export endpoint for users
@@ -478,22 +532,22 @@ $ gh pr create --title "feat: Add CSV export for users (MYAPP-123)"
 
 ---
 
-### Exemple 2 : Mode automatique (quick fix)
+### Example 2: Automatic Mode (quick fix)
 
 ```bash
-# Tout en une commande, sans interaction
+# All in one command, no interaction
 $ claude -p "/resolve MYAPP-456 --auto --implement"
 
-# Ou en mode interactif puis auto-implement
+# Or in interactive then auto-implement
 > /resolve MYAPP-456 --auto --implement
 
 ✓ Ticket: "Fix typo in login error message"
-✓ Complexite: SIMPLE (score: 1)
-✓ Branche: fix/myapp-456-fix-typo-login-error
+✓ Complexity: SIMPLE (score: 1)
+✓ Branch: fix/myapp-456-fix-typo-login-error
 ✓ Plan: 1 phase
-✓ Implementation lancee...
+✓ Implementation started...
 
-[solo-implement.sh s'execute automatiquement]
+[solo-implement.sh runs automatically]
 
 ✓ Phase 1/1 completed
 ✓ Committed: fix(auth): correct typo in login error message
@@ -503,94 +557,94 @@ Done! Review with: git show HEAD
 
 ---
 
-### Exemple 3 : Reprise apres interruption
+### Example 3: Resume After Interruption
 
 ```bash
-# Session precedente interrompue a la phase 2
+# Previous session interrupted at phase 2
 $ solo-implement.sh --feature myapp-123
 
 Using plan: .claude/feature/myapp-123/plan.md
 Phase 1: ✅ (already completed)
 
 ═══════════════════════════════════════════════════════════
-  Phase 2/3: Ajouter l'endpoint API (resuming)
+  Phase 2/3: Add API endpoint (resuming)
 ═══════════════════════════════════════════════════════════
 
 [Continue implementation...]
 ```
 
 ```bash
-# Ou reprendre le workflow /resolve
+# Or resume the /resolve workflow
 > /resolve MYAPP-123
 
-? Un workflow existe deja (etat: workspace_ready). Que faire ?
-  ● Reprendre - Continuer depuis 'plan'
-  ○ Recommencer - Supprimer et repartir de zero
-  ○ Annuler
+? A workflow already exists (state: workspace_ready). What to do?
+  ● Resume - Continue from 'plan'
+  ○ Restart - Delete and start over
+  ○ Cancel
 ```
 
 ---
 
-### Exemple 4 : Workflow GitHub Issues
+### Example 4: GitHub Issues Workflow
 
 ```bash
-# Configuration pour projet GitHub
+# Configuration for GitHub project
 > /resolve --init
 
-? Source de tickets ?
+? Ticket source?
   ● GitHub Issues
 
-? Repository GitHub ?
-  ● Detecter automatiquement
+? GitHub repository?
+  ● Auto-detect
 
-✓ Detecte: my-org/my-repo
+✓ Detected: my-org/my-repo
 
-# Utilisation
+# Usage
 > /resolve #42
 
-Ticket recupere: "Add dark mode support"
-[... workflow standard ...]
+Ticket fetched: "Add dark mode support"
+[... standard workflow ...]
 ```
 
 ---
 
-### Exemple 5 : Options avancees de solo-implement.sh
+### Example 5: Advanced solo-implement.sh Options
 
 ```bash
-# Preview sans execution
+# Preview without execution
 $ solo-implement.sh --feature myapp-123 --dry-run
 
-# Executer une seule phase
+# Execute single phase only
 $ solo-implement.sh --feature myapp-123 --phase 2
 
-# Reprendre depuis la phase 3
+# Resume from phase 3
 $ solo-implement.sh --feature myapp-123 --start 3
 
-# Sans commits automatiques (pour review manuel)
+# Without auto commits (for manual review)
 $ solo-implement.sh --feature myapp-123 --no-commit
 
-# Sans validation (plus rapide mais risque)
+# Without validation (faster but risky)
 $ solo-implement.sh --feature myapp-123 --no-validate
 
-# Mode debug
+# Debug mode
 $ solo-implement.sh --feature myapp-123 --verbose
 
-# Avec extended thinking pour phases complexes
+# With extended thinking for complex phases
 $ solo-implement.sh --feature myapp-123 --thinking-budget 10000
 ```
 
 ---
 
-### Exemple 6 : Structure des fichiers generes
+### Example 6: Generated Files Structure
 
 ```bash
 $ tree .claude/feature/myapp-123/
 
 .claude/feature/myapp-123/
-├── status.json      # Etat du workflow
-├── ticket.md        # Ticket original (markdown)
-├── analysis.md      # Analyse de complexite + exploration
-└── plan.md          # Plan pour solo-implement.sh
+├── status.json      # Workflow state
+├── ticket.md        # Original ticket (markdown)
+├── analysis.md      # Complexity analysis + exploration
+└── plan.md          # Plan for solo-implement.sh
 
 $ cat .claude/feature/myapp-123/status.json
 {
@@ -600,7 +654,7 @@ $ cat .claude/feature/myapp-123/status.json
   "complexity": "medium",
   "workspace": {
     "type": "branch",
-    "name": "feat/myapp-123-ajouter-export-csv",
+    "name": "feat/myapp-123-add-csv-export",
     "base": "main"
   },
   "phases": {

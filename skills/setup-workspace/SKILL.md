@@ -14,10 +14,94 @@ Standard git branch created from base branch.
 - **Pros**: Simple, familiar, no extra disk space
 - **Cons**: Must switch context, can conflict with current work
 
-### 2. Worktree (Optional)
+### 2. Worktree (Only if tooling detected)
 Separate working directory with its own checkout.
 - **Pros**: Parallel work, no context switching, isolated
-- **Cons**: Extra disk space, more complex setup
+- **Cons**: Requires project-specific setup (docker, env, etc.)
+
+**IMPORTANT**: Worktree mode is ONLY available if the project has explicit tooling to support it. Raw `git worktree` is NOT sufficient - the project needs scripts to handle environment setup (docker-compose, .env files, dependencies, etc.).
+
+---
+
+## Worktree Capability Detection
+
+Before offering worktree as an option, detect if the project supports it.
+
+### Detection Strategy
+
+Search for worktree-related tooling in this order:
+
+#### 1. Makefile Targets
+```bash
+# Search for worktree-related targets
+grep -E "^worktree|^wt-|^new-worktree|worktree:" Makefile makefile GNUmakefile 2>/dev/null
+```
+
+Look for patterns:
+- `worktree:`, `worktree-setup:`, `worktree-create:`
+- `wt-new:`, `wt-setup:`, `wt-init:`
+- `new-worktree:`, `create-worktree:`
+
+#### 2. Scripts Directory
+```bash
+# Search for worktree scripts
+ls -la scripts/*worktree* bin/*worktree* tools/*worktree* 2>/dev/null
+ls -la scripts/*wt* bin/*wt* 2>/dev/null
+```
+
+#### 3. Package.json Scripts
+```bash
+# Search in npm scripts
+grep -E "worktree|wt:" package.json 2>/dev/null
+```
+
+#### 4. Composer Scripts
+```bash
+# Search in composer scripts
+grep -E "worktree|wt:" composer.json 2>/dev/null
+```
+
+#### 5. Documentation
+```bash
+# Search for worktree documentation
+grep -ri "worktree" README.md CONTRIBUTING.md docs/ .github/ 2>/dev/null | head -5
+```
+
+#### 6. Existing Worktrees
+```bash
+# Check if project already uses worktrees
+git worktree list 2>/dev/null | wc -l
+```
+
+### Detection Result
+
+```json
+{
+  "worktree_supported": true|false,
+  "detection_method": "makefile|script|package.json|documentation|existing",
+  "setup_command": "make worktree-new TICKET=xxx" | null,
+  "details": "Found 'make worktree-setup' target in Makefile"
+}
+```
+
+### Decision Logic
+
+```
+IF worktree tooling detected:
+    → Offer worktree as option (with detected command)
+    → Show: "Worktree disponible via: {setup_command}"
+
+ELSE IF config.workspace.prefer_worktree == true:
+    → Warn: "Worktree prefere mais aucun outil detecte"
+    → Suggest: "Creez un target Makefile 'worktree-setup' pour activer"
+    → Fallback to branch mode
+
+ELSE:
+    → Use branch mode (default)
+    → Don't mention worktree option
+```
+
+---
 
 ## Branch Naming Convention
 
@@ -57,7 +141,13 @@ fix/proj-456-null-pointer-in-login
 refactor/proj-789-extract-validation-service
 ```
 
+---
+
 ## Setup Process
+
+### Step 0: Detect Worktree Capability
+
+Run detection strategy above. Store result for later decision.
 
 ### Step 1: Determine Base Branch
 
@@ -89,7 +179,7 @@ git pull origin {base-branch}
 
 ### Step 4: Create Workspace
 
-#### Branch Mode
+#### Branch Mode (Default)
 ```bash
 # Ensure we're on base branch
 git checkout {base-branch}
@@ -98,7 +188,18 @@ git checkout {base-branch}
 git checkout -b {branch-name}
 ```
 
-#### Worktree Mode
+#### Worktree Mode (Only if tooling detected)
+
+**Using detected project command**:
+```bash
+# Example with Makefile
+make worktree-new TICKET={ticket-id} BRANCH={branch-name}
+
+# Example with script
+./scripts/create-worktree.sh {ticket-id} {branch-name}
+```
+
+**If no specific command but tooling exists**:
 ```bash
 # Create worktree directory
 mkdir -p {worktree_parent}
@@ -106,8 +207,10 @@ mkdir -p {worktree_parent}
 # Create worktree with new branch
 git worktree add {worktree_parent}/{ticket-id} -b {branch-name} {base-branch}
 
-# Output path for user
-echo "Worktree created at: {worktree_parent}/{ticket-id}"
+# Warn user about manual setup needed
+echo "⚠️  Worktree cree mais setup manuel requis:"
+echo "   cd {worktree_parent}/{ticket-id}"
+echo "   # Copier .env, docker-compose, etc."
 ```
 
 ### Step 5: Verify Setup
@@ -118,6 +221,35 @@ git branch --show-current
 
 # Should output: {branch-name}
 ```
+
+---
+
+## Interactive Mode Questions
+
+When in interactive mode, the questions depend on detection:
+
+### If Worktree Tooling Detected
+
+```
+AskUserQuestion:
+  question: "Comment creer l'espace de travail ?"
+  header: "Workspace"
+  options:
+    - label: "Branche simple (Recommended)"
+      description: "Creer une branche sur le repo actuel"
+    - label: "Worktree isole"
+      description: "Via: {detected_command} - repertoire separe"
+```
+
+### If No Worktree Tooling
+
+Don't ask - use branch mode directly. Only mention:
+
+```
+Mode: Branche (worktree non disponible - aucun outil detecte)
+```
+
+---
 
 ## Error Handling
 
@@ -153,18 +285,20 @@ Attempting to fetch from remote...
 git fetch origin {base-branch}:{base-branch}
 ```
 
-### Worktree Path Exists
+### Worktree Setup Failed
 ```
-Worktree path '{path}' already exists.
+Worktree creation failed.
 
-Options:
-1. Remove existing: git worktree remove {path}
-2. Use different path
-3. Switch to branch mode
+Cause probable: Setup incomplet (docker, .env, etc.)
+
+Fallback: Utilisation du mode branche standard.
 ```
+
+---
 
 ## Output Format
 
+### Branch Mode
 ```markdown
 ## Workspace Setup
 
@@ -180,17 +314,39 @@ Options:
 4. [x] Switched to feature branch
 
 ### Current State
-```
 On branch feat/proj-123-add-user-authentication
 Your branch is up to date with 'origin/main'.
-
-nothing to commit, working tree clean
-```
 
 ### Next Steps
 - Ready for implementation
 - Feature files will be stored in: .claude/feature/proj-123/
 ```
+
+### Worktree Mode
+```markdown
+## Workspace Setup
+
+### Configuration
+- **Mode**: Worktree
+- **Base Branch**: main
+- **Feature Branch**: feat/proj-123-add-user-authentication
+- **Worktree Path**: ../worktrees/proj-123
+
+### Actions Taken
+1. [x] Detected worktree tooling: make worktree-new
+2. [x] Executed: make worktree-new TICKET=proj-123
+3. [x] Worktree created at: ../worktrees/proj-123
+4. [x] Environment setup completed
+
+### Current State
+Worktree ready at: ../worktrees/proj-123
+
+### Next Steps
+- cd ../worktrees/proj-123
+- Ready for implementation
+```
+
+---
 
 ## Configuration
 
@@ -201,7 +357,8 @@ From `.claude/ticket-config.json`:
   "workspace": {
     "prefer_worktree": false,
     "worktree_parent": "../worktrees",
-    "auto_stash": true
+    "auto_stash": true,
+    "worktree_command": null
   },
   "branches": {
     "default_base": "main",
@@ -215,11 +372,55 @@ From `.claude/ticket-config.json`:
 }
 ```
 
+### `workspace.worktree_command`
+If set, this command will be used for worktree creation instead of auto-detection.
+Example: `"make worktree TICKET={{ticket_id}}"`
+
+---
+
+## Example Makefile for Worktree Support
+
+For projects wanting to enable worktree mode, here's an example Makefile:
+
+```makefile
+# Worktree management
+WORKTREE_DIR ?= ../worktrees
+
+.PHONY: worktree-new worktree-remove worktree-list
+
+worktree-new: ## Create a new worktree for a ticket
+ifndef TICKET
+	$(error TICKET is required. Usage: make worktree-new TICKET=PROJ-123)
+endif
+	@echo "Creating worktree for $(TICKET)..."
+	@mkdir -p $(WORKTREE_DIR)
+	git worktree add $(WORKTREE_DIR)/$(TICKET) -b feat/$(TICKET)
+	@# Copy environment files
+	@cp -n .env.example $(WORKTREE_DIR)/$(TICKET)/.env 2>/dev/null || true
+	@cp -n docker-compose.override.yml.dist $(WORKTREE_DIR)/$(TICKET)/docker-compose.override.yml 2>/dev/null || true
+	@echo "Worktree ready at: $(WORKTREE_DIR)/$(TICKET)"
+	@echo "Next: cd $(WORKTREE_DIR)/$(TICKET) && make install"
+
+worktree-remove: ## Remove a worktree
+ifndef TICKET
+	$(error TICKET is required. Usage: make worktree-remove TICKET=PROJ-123)
+endif
+	git worktree remove $(WORKTREE_DIR)/$(TICKET) --force
+	@echo "Worktree removed"
+
+worktree-list: ## List all worktrees
+	git worktree list
+```
+
+---
+
 ## Integration with Workflow
 
 This skill is invoked by:
 1. `/resolve` command - after analysis, before planning
 2. Other workflows needing workspace setup
+
+---
 
 ## Safety Rules
 
@@ -238,6 +439,8 @@ This skill is invoked by:
 4. **Verify before destructive operations**
    - Confirm before deleting branches
    - Confirm before removing worktrees
+
+---
 
 ## Branch Name Sanitization
 
@@ -259,6 +462,8 @@ def sanitize_slug(title):
     slug = slug.rstrip('-')
     return slug
 ```
+
+---
 
 ## Language
 
