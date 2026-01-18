@@ -48,6 +48,7 @@ Modular system for automated ticket resolution, integrating YouTrack (MCP) and G
     ├─► Setup workspace (branch)
     ├─► Create plan → plan.md
     ├─► Implementation via solo-implement.sh
+    ├─► Code simplification (auto-detected agent)
     └─► Push + Create PR (draft by default)
 ```
 
@@ -59,6 +60,7 @@ Modular system for automated ticket resolution, integrating YouTrack (MCP) and G
 | `/fetch-ticket <ticket-id>` | Fetch a ticket only |
 | `/analyze-ticket <ticket-id>` | Analyze complexity |
 | `/plan-ticket <ticket-id>` | Create plan from existing ticket |
+| `/simplify` | Simplify code using auto-detected agent |
 | `/create-pr` | Push branch and create pull request |
 
 ### /resolve Modes
@@ -89,6 +91,9 @@ Modular system for automated ticket resolution, integrating YouTrack (MCP) and G
 # Specify target branch for PR
 /resolve PROJ-123 --auto --target develop
 
+# Skip code simplification
+/resolve PROJ-123 --auto --skip-simplify
+
 # Force source
 /resolve PROJ-123 --source youtrack
 ```
@@ -100,7 +105,8 @@ Modular system for automated ticket resolution, integrating YouTrack (MCP) and G
 3. **Base branch**: main / develop / current branch?
 4. **Branch name**: Auto-generated / short / custom?
 5. **Final action**: View plan / Implementation / Implementation + PR / Finish?
-6. **PR mode** (if PR selected): Draft / Ready for review / Push only?
+6. **Simplify** (after implementation): Yes / No?
+7. **PR mode** (if PR selected): Draft / Ready for review / Push only?
 
 ### Complexity Levels
 
@@ -163,6 +169,36 @@ After implementation, create a PR:
 - Always creates PR (if not exists)
 - Uses `pr.draft_by_default` config (default: true)
 - Targets the base branch used for workspace setup
+
+### Code Simplification
+
+After implementation, code can be automatically simplified using project-specific agents:
+
+```bash
+# Standalone usage
+/simplify
+
+# Force specific agent
+/simplify --agent symfony
+
+# Simplify specific file
+/simplify --file src/Service/UserService.php
+
+# Preview without applying
+/simplify --dry-run
+```
+
+**Available agents:**
+
+| Agent | Auto-detected when | Focus |
+|-------|-------------------|-------|
+| `symfony` | `symfony/framework-bundle` in composer.json | Symfony patterns, DI, Doctrine |
+| `laravel` | `laravel/framework` in composer.json | Laravel patterns, Eloquent |
+| `generic` | Default / JS/TS projects | General best practices |
+
+**In `/resolve` workflow:**
+- Auto mode: runs simplification if `simplify.auto_apply = true`
+- Interactive mode: asks before running
 
 ---
 
@@ -261,6 +297,13 @@ EOF
     "include_test_plan": true,
     "auto_push": true,
     "title_format": "{type}: {title} ({ticket_id})"
+  },
+
+  "simplify": {
+    "enabled": true,
+    "agent": "auto",
+    "scope": "modified",
+    "auto_apply": false
   }
 }
 ```
@@ -312,6 +355,25 @@ Include validation steps from plan in PR body. Default: `true`.
 #### `pr.title_format`
 PR title format template. Placeholders: `{type}`, `{title}`, `{ticket_id}`.
 Default: `"{type}: {title} ({ticket_id})"`.
+
+#### `simplify.enabled`
+Enable code simplification phase. Default: `true`.
+
+#### `simplify.agent`
+Which simplifier to use:
+- `"auto"`: Detect based on project type (symfony, laravel, generic)
+- `"symfony"`: Force Symfony simplifier
+- `"laravel"`: Force Laravel simplifier
+- `"generic"`: Force generic simplifier
+
+#### `simplify.scope`
+Scope of files to simplify:
+- `"modified"`: Files changed in current branch (default)
+- `"phase"`: Files from last implementation phase
+- `"all"`: Entire codebase
+
+#### `simplify.auto_apply`
+Automatically apply simplifications without asking (auto mode only). Default: `false`.
 
 ---
 
@@ -379,6 +441,17 @@ worktree-remove: ## Remove worktree
 | `setup-workspace` | Branch/worktree creation |
 | `ticket-workflow` | State machine and coordination |
 | `create-pr` | Push branch and create pull request |
+
+---
+
+## Simplifier Agents
+
+| Agent | File | Use Case |
+|-------|------|----------|
+| `code-simplifier` | `agents/code-simplifier.md` | Generic (JS/TS/Python/Go) |
+| `symfony-simplifier` | `agents/symfony-simplifier.md` | Symfony/PHP projects |
+
+Agents are auto-detected based on project type, or can be forced via `--agent` flag or config.
 
 ---
 

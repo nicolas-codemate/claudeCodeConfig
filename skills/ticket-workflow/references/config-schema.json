@@ -222,6 +222,34 @@
           "description": "Custom PR body template. If null, uses default template"
         }
       }
+    },
+    "simplify": {
+      "type": "object",
+      "description": "Code simplification configuration",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable code simplification phase after implementation"
+        },
+        "agent": {
+          "type": "string",
+          "enum": ["auto", "generic", "symfony", "laravel"],
+          "default": "auto",
+          "description": "Which simplifier agent to use. 'auto' detects based on project type"
+        },
+        "scope": {
+          "type": "string",
+          "enum": ["modified", "phase", "all"],
+          "default": "modified",
+          "description": "Scope of simplification: 'modified' (changed files), 'phase' (files in current phase), 'all' (entire codebase)"
+        },
+        "auto_apply": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically apply simplifications without asking (auto mode only)"
+        }
+      }
     }
   },
   "additionalProperties": false

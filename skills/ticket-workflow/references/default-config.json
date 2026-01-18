@@ -51,5 +51,11 @@
     "auto_push": true,
     "title_format": "{type}: {title} ({ticket_id})",
     "body_template": null
+  },
+  "simplify": {
+    "enabled": true,
+    "agent": "auto",
+    "scope": "modified",
+    "auto_apply": false
   }
 }

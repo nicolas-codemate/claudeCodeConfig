@@ -111,6 +111,11 @@
           "enum": ["pending", "in_progress", "completed", "skipped", "failed"],
           "default": "pending"
         },
+        "simplify": {
+          "type": "string",
+          "enum": ["pending", "in_progress", "completed", "skipped", "failed"],
+          "default": "pending"
+        },
         "finalize": {
           "type": "string",
           "enum": ["pending", "in_progress", "completed", "skipped", "failed"],

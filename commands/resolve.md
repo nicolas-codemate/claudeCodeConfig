@@ -1,6 +1,6 @@
 ---
-description: Main orchestrator for ticket resolution workflow - fetch, analyze, setup workspace, plan, implement, PR
-argument-hint: <ticket-id> [--auto] [--init] [--source youtrack|github] [--implement] [--pr] [--draft]
+description: Main orchestrator for ticket resolution workflow - fetch, analyze, setup workspace, plan, implement, simplify, PR
+argument-hint: <ticket-id> [--auto] [--init] [--source youtrack|github] [--implement] [--skip-simplify] [--pr] [--draft]
 allowed-tools: Read, Glob, Grep, Bash, Write, Task, AskUserQuestion, mcp__youtrack__get_issue, mcp__youtrack__get_issue_comments, mcp__youtrack__get_issue_attachments
 ---
 
@@ -22,6 +22,7 @@ Extract from arguments:
 - `--auto`: Optional - automatic mode, no questions asked (default: interactive)
 - `--source`: Optional - force source (youtrack, github, file)
 - `--implement`: Optional - launch solo-implement.sh after planning
+- `--skip-simplify`: Optional - skip code simplification phase
 - `--pr`: Optional - create pull request after implementation (implied in auto mode)
 - `--draft`: Optional - create PR as draft (default: true, use `--no-draft` for ready PR)
 - `--target`: Optional - target branch for PR (default: auto-detect)
@@ -252,6 +253,7 @@ Create `.claude/feature/{ticket-id}/status.json`:
     "workspace": "pending",
     "plan": "pending",
     "implement": "pending",
+    "simplify": "pending",
     "finalize": "pending"
   }
 }
@@ -620,11 +622,124 @@ Options disponibles:
 
 ---
 
-## STEP 9: FINALIZE (push + PR)
+## STEP 9: SIMPLIFY CODE
+
+Apply code simplification to recently modified files.
+
+### 9.1 Check if Enabled
+
+Skip if:
+- `--skip-simplify` flag provided
+- Config `simplify.enabled = false`
+- No files were modified during implementation
+
+### 9.2 Detect Simplifier Agent
+
+**If config `simplify.agent = "auto"`**, detect project type:
+
+```bash
+# Check for Symfony
+if [ -f "composer.json" ] && grep -q "symfony/framework-bundle" composer.json; then
+    AGENT="symfony"
+# Check for Laravel
+elif [ -f "composer.json" ] && grep -q "laravel/framework" composer.json; then
+    AGENT="laravel"
+# Default to generic
+else
+    AGENT="generic"
+fi
+```
+
+**Agent paths**:
+- `symfony` → `~/.claude/agents/symfony-simplifier.md`
+- `laravel` → `~/.claude/agents/laravel-simplifier.md` (if exists)
+- `generic` → `~/.claude/agents/code-simplifier.md`
+
+### 9.3 Identify Modified Files
+
+```bash
+# Get files modified in this feature branch
+git diff --name-only {base-branch}...HEAD
+```
+
+Filter by scope (config `simplify.scope`):
+- `modified`: All files changed in branch
+- `phase`: Only files from last implementation phase
+- `all`: Entire codebase (use with caution)
+
+### 9.4 INTERACTIVE: Confirm Simplification
+
+**In INTERACTIVE mode**, ask:
+
+```
+AskUserQuestion:
+  question: "Lancer la simplification du code ?"
+  header: "Simplify"
+  options:
+    - label: "Oui (Recommended)"
+      description: "Analyser et simplifier les fichiers modifies avec {agent}-simplifier"
+    - label: "Non, passer"
+      description: "Aller directement a la creation de PR"
+```
+
+**In AUTO mode**:
+- If `simplify.auto_apply = true`: apply automatically
+- Otherwise: suggest changes but don't apply without confirmation
+
+### 9.5 Run Simplification
+
+Load the appropriate agent and run against modified files:
+
+```markdown
+Read agent from: ~/.claude/agents/{agent}-simplifier.md
+
+Apply to files:
+- {list of modified files}
+
+Scope: {scope from config}
+```
+
+The agent will:
+1. Analyze each file against best practices
+2. Suggest improvements
+3. Apply changes (if auto_apply or confirmed)
+4. Report changes made
+
+### 9.6 Review Changes
+
+**In INTERACTIVE mode**, after simplification:
+
+```
+AskUserQuestion:
+  question: "Des simplifications ont ete appliquees. Que faire ?"
+  header: "Review"
+  options:
+    - label: "Accepter et continuer"
+      description: "Garder les modifications et creer la PR"
+    - label: "Voir les changements"
+      description: "Afficher le diff des simplifications"
+    - label: "Annuler"
+      description: "Revert les simplifications"
+```
+
+### 9.7 Commit Simplifications
+
+If changes were applied:
+
+```bash
+git add -A
+git commit -m "refactor: simplify code ({agent}-simplifier)"
+```
+
+Update status: `phases.simplify = "completed"`.
+
+---
+
+## STEP 10: FINALIZE (push + PR)
 
 Read and apply the create-pr skill from `~/.claude/skills/create-pr/SKILL.md`.
 
-### 9.1 Pre-flight Checks
+### 10.1 Pre-flight Checks
 
 ```bash
 # Verify on feature branch
@@ -634,13 +749,13 @@ CURRENT_BRANCH=$(git branch --show-current)
 git status --porcelain
 ```
 
-### 9.2 Push Branch
+### 10.2 Push Branch
 
 ```bash
 git push -u origin {branch-name}
 ```
 
-### 9.3 Check Existing PR
+### 10.3 Check Existing PR
 
 ```bash
 # Check if PR already exists
@@ -649,7 +764,7 @@ gh pr view {branch-name} --json number,url 2>/dev/null
 
 If PR exists: display URL and skip creation.
 
-### 9.4 INTERACTIVE: PR Options
+### 10.4 INTERACTIVE: PR Options
 
 **In INTERACTIVE mode**, ask:
 
@@ -683,7 +798,7 @@ AskUserQuestion:
 
 **In AUTO mode**: create draft PR targeting `{base-branch}` from workspace setup.
 
-### 9.5 Generate PR Content
+### 10.5 Generate PR Content
 
 **Title**: `{type}: {ticket_title} ({ticket_id})`
 
@@ -710,7 +825,7 @@ Example: `feat: Add CSV export for users (PROJ-123)`
 {Validation steps from plan}
 ```
 
-### 9.6 Create PR
+### 10.6 Create PR
 
 ```bash
 gh pr create \
@@ -720,7 +835,7 @@ gh pr create \
     --draft  # if draft mode
 ```
 
-### 9.7 Update Status
+### 10.7 Update Status
 
 ```json
 {
@@ -737,7 +852,7 @@ gh pr create \
 }
 ```
 
-### 9.8 Display Result
+### 10.8 Display Result
 
 ```markdown
 ## Pull Request Creee
@@ -811,6 +926,7 @@ Erreur: Impossible de creer la pull request
 | Base branch | Choix utilisateur | Config/default |
 | Branch name | Confirmation | Generation auto |
 | Implementation | Choix utilisateur | Selon --implement |
+| Simplification | Choix utilisateur | Si `simplify.auto_apply` |
 | Push | Choix utilisateur | Toujours |
 | PR creation | Choix utilisateur | Toujours (draft) |
 | Draft mode | Choix utilisateur | Config `pr.draft_by_default` |
@@ -836,6 +952,12 @@ Project config in `.claude/ticket-config.json`:
     "default_target": null,
     "include_ticket_link": true,
     "title_format": "{type}: {title} ({ticket_id})"
+  },
+  "simplify": {
+    "enabled": true,
+    "agent": "auto",
+    "scope": "modified",
+    "auto_apply": false
   }
 }
 ```
