@@ -42,5 +42,14 @@
   "storage": {
     "feature_dir": ".claude/feature",
     "keep_completed": true
+  },
+  "pr": {
+    "draft_by_default": true,
+    "default_target": null,
+    "include_ticket_link": true,
+    "include_test_plan": true,
+    "auto_push": true,
+    "title_format": "{type}: {title} ({ticket_id})",
+    "body_template": null
   }
 }

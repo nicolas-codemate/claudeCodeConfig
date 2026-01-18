@@ -38,6 +38,7 @@
         "workspace_ready",
         "planned",
         "implementing",
+        "finalized",
         "completed",
         "failed"
       ],
@@ -109,6 +110,39 @@
           "type": "string",
           "enum": ["pending", "in_progress", "completed", "skipped", "failed"],
           "default": "pending"
+        },
+        "finalize": {
+          "type": "string",
+          "enum": ["pending", "in_progress", "completed", "skipped", "failed"],
+          "default": "pending"
+        }
+      }
+    },
+    "pr": {
+      "type": "object",
+      "description": "Pull request information",
+      "properties": {
+        "number": {
+          "type": "integer",
+          "description": "PR number"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "PR URL"
+        },
+        "draft": {
+          "type": "boolean",
+          "description": "Whether PR is a draft"
+        },
+        "target": {
+          "type": "string",
+          "description": "Target branch for the PR"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the PR was created"
         }
       }
     },
@@ -131,6 +165,14 @@
         "auto_implement": {
           "type": "boolean",
           "default": false
+        },
+        "auto_pr": {
+          "type": "boolean",
+          "default": false
+        },
+        "draft_pr": {
+          "type": "boolean",
+          "default": true
         },
         "base_branch": {
           "type": "string"

@@ -47,7 +47,8 @@ Modular system for automated ticket resolution, integrating YouTrack (MCP) and G
     │   └─► If COMPLEX: Parallel AEP exploration
     ├─► Setup workspace (branch)
     ├─► Create plan → plan.md
-    └─► Implementation (optional) via solo-implement.sh
+    ├─► Implementation via solo-implement.sh
+    └─► Push + Create PR (draft by default)
 ```
 
 ### Available Commands
@@ -58,13 +59,14 @@ Modular system for automated ticket resolution, integrating YouTrack (MCP) and G
 | `/fetch-ticket <ticket-id>` | Fetch a ticket only |
 | `/analyze-ticket <ticket-id>` | Analyze complexity |
 | `/plan-ticket <ticket-id>` | Create plan from existing ticket |
+| `/create-pr` | Push branch and create pull request |
 
 ### /resolve Modes
 
 | Mode | Description |
 |------|-------------|
 | **Interactive** (default) | Asks questions at each key step |
-| **Automatic** (`--auto`) | Uses detected/configured values |
+| **Automatic** (`--auto`) | Uses detected/configured values, always push + create PR |
 
 ### /resolve Options
 
@@ -75,11 +77,17 @@ Modular system for automated ticket resolution, integrating YouTrack (MCP) and G
 # Interactive mode (default) - asks questions
 /resolve PROJ-123
 
-# Automatic mode - no questions
+# Automatic mode - no questions, implements + creates PR
 /resolve PROJ-123 --auto
 
-# Auto mode with immediate implementation
+# Auto mode with immediate implementation (legacy, same as --auto)
 /resolve PROJ-123 --auto --implement
+
+# Create PR as ready (not draft)
+/resolve PROJ-123 --auto --no-draft
+
+# Specify target branch for PR
+/resolve PROJ-123 --auto --target develop
 
 # Force source
 /resolve PROJ-123 --source youtrack
@@ -91,7 +99,8 @@ Modular system for automated ticket resolution, integrating YouTrack (MCP) and G
 2. **Workflow**: Simple / Standard / Full (AEP) / Custom?
 3. **Base branch**: main / develop / current branch?
 4. **Branch name**: Auto-generated / short / custom?
-5. **Final action**: View plan / Start implementation / Finish?
+5. **Final action**: View plan / Implementation / Implementation + PR / Finish?
+6. **PR mode** (if PR selected): Draft / Ready for review / Push only?
 
 ### Complexity Levels
 
@@ -107,7 +116,7 @@ Each ticket creates a folder in the project:
 
 ```
 {PROJECT}/.claude/feature/{ticket-id}/
-├── status.json   # Workflow state (for resume)
+├── status.json   # Workflow state (for resume) + PR info
 ├── ticket.md     # Original ticket content
 ├── analysis.md   # Complexity analysis
 └── plan.md       # Implementation plan
@@ -127,6 +136,33 @@ solo-implement.sh --feature PROJ-123
 # Or from .claude/implementation (legacy workflow)
 solo-implement.sh
 ```
+
+### Pull Request Creation
+
+After implementation, create a PR:
+
+```bash
+# Integrated in /resolve (auto mode always creates PR)
+/resolve PROJ-123 --auto
+
+# Or standalone command
+/create-pr
+
+# Create as ready for review (not draft)
+/create-pr --no-draft
+
+# Specify target branch
+/create-pr --target develop
+
+# Custom title
+/create-pr --title "feat: custom PR title"
+```
+
+**Auto mode behavior:**
+- Always pushes the branch
+- Always creates PR (if not exists)
+- Uses `pr.draft_by_default` config (default: true)
+- Targets the base branch used for workspace setup
 
 ---
 
@@ -216,6 +252,15 @@ EOF
   "storage": {
     "feature_dir": ".claude/feature",
     "keep_completed": true
+  },
+
+  "pr": {
+    "draft_by_default": true,
+    "default_target": null,
+    "include_ticket_link": true,
+    "include_test_plan": true,
+    "auto_push": true,
+    "title_format": "{type}: {title} ({ticket_id})"
   }
 }
 ```
@@ -251,6 +296,22 @@ Score thresholds for automatic classification:
 - Score ≤ 2 → SIMPLE
 - Score ≥ 6 → COMPLEX
 - In between → MEDIUM
+
+#### `pr.draft_by_default`
+Create PRs as draft by default. Default: `true`.
+
+#### `pr.default_target`
+Default target branch for PRs. If `null`, uses `branches.default_base`.
+
+#### `pr.include_ticket_link`
+Include ticket link in PR body. Default: `true`.
+
+#### `pr.include_test_plan`
+Include validation steps from plan in PR body. Default: `true`.
+
+#### `pr.title_format`
+PR title format template. Placeholders: `{type}`, `{title}`, `{ticket_id}`.
+Default: `"{type}: {title} ({ticket_id})"`.
 
 ---
 
@@ -317,6 +378,7 @@ worktree-remove: ## Remove worktree
 | `analyze-ticket` | Complexity analysis and scoring |
 | `setup-workspace` | Branch/worktree creation |
 | `ticket-workflow` | State machine and coordination |
+| `create-pr` | Push branch and create pull request |
 
 ---
 
@@ -447,10 +509,18 @@ Suggested complexity: MEDIUM (score: 4)
 **Validation**: npm run test
 
 ? What do you want to do now?
-  ● Finish
+  ● Implementation + PR
 
-To implement later:
-  solo-implement.sh --feature myapp-123
+[solo-implement.sh runs...]
+
+✓ All phases completed
+
+? Create pull request?
+  ● Yes, as draft (Recommended)
+
+✓ Branch pushed to origin
+✓ PR created: #456 (draft)
+  https://github.com/my-org/my-repo/pull/456
 ```
 
 ```bash
@@ -535,24 +605,37 @@ $ gh pr create --title "feat: Add CSV export for users (MYAPP-123)"
 ### Example 2: Automatic Mode (quick fix)
 
 ```bash
-# All in one command, no interaction
-$ claude -p "/resolve MYAPP-456 --auto --implement"
+# All in one command, no interaction - implements AND creates PR
+$ claude -p "/resolve MYAPP-456 --auto"
 
-# Or in interactive then auto-implement
-> /resolve MYAPP-456 --auto --implement
+# Or with explicit flags
+> /resolve MYAPP-456 --auto
 
 ✓ Ticket: "Fix typo in login error message"
 ✓ Complexity: SIMPLE (score: 1)
 ✓ Branch: fix/myapp-456-fix-typo-login-error
 ✓ Plan: 1 phase
-✓ Implementation started...
 
 [solo-implement.sh runs automatically]
 
 ✓ Phase 1/1 completed
 ✓ Committed: fix(auth): correct typo in login error message
 
-Done! Review with: git show HEAD
+[Finalization]
+
+✓ Branch pushed to origin
+✓ PR created: #789 (draft)
+  https://github.com/my-org/my-repo/pull/789
+
+Done! PR ready for review.
+```
+
+```bash
+# Create ready PR (not draft)
+> /resolve MYAPP-456 --auto --no-draft
+
+# Skip PR creation, just implement
+> /resolve MYAPP-456 --implement
 ```
 
 ---
@@ -641,7 +724,7 @@ $ solo-implement.sh --feature myapp-123 --thinking-budget 10000
 $ tree .claude/feature/myapp-123/
 
 .claude/feature/myapp-123/
-├── status.json      # Workflow state
+├── status.json      # Workflow state + PR info
 ├── ticket.md        # Original ticket (markdown)
 ├── analysis.md      # Complexity analysis + exploration
 └── plan.md          # Plan for solo-implement.sh
@@ -650,7 +733,7 @@ $ cat .claude/feature/myapp-123/status.json
 {
   "ticket_id": "MYAPP-123",
   "source": "youtrack",
-  "state": "completed",
+  "state": "finalized",
   "complexity": "medium",
   "workspace": {
     "type": "branch",
@@ -663,7 +746,14 @@ $ cat .claude/feature/myapp-123/status.json
     "explore": "completed",
     "workspace": "completed",
     "plan": "completed",
-    "implement": "completed"
+    "implement": "completed",
+    "finalize": "completed"
+  },
+  "pr": {
+    "number": 456,
+    "url": "https://github.com/my-org/my-repo/pull/456",
+    "draft": true,
+    "target": "main"
   }
 }
 ```

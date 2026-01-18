@@ -181,6 +181,47 @@
           "description": "Keep files after ticket completion"
         }
       }
+    },
+    "pr": {
+      "type": "object",
+      "description": "Pull request configuration",
+      "properties": {
+        "draft_by_default": {
+          "type": "boolean",
+          "default": true,
+          "description": "Create PRs as draft by default"
+        },
+        "default_target": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Default target branch for PRs. If null, uses branches.default_base"
+        },
+        "include_ticket_link": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include ticket link in PR body"
+        },
+        "include_test_plan": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include validation steps from plan in PR body"
+        },
+        "auto_push": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically push branch before creating PR"
+        },
+        "title_format": {
+          "type": "string",
+          "default": "{type}: {title} ({ticket_id})",
+          "description": "PR title format. Placeholders: {type}, {title}, {ticket_id}"
+        },
+        "body_template": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Custom PR body template. If null, uses default template"
+        }
+      }
     }
   },
   "additionalProperties": false

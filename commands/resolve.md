@@ -1,12 +1,12 @@
 ---
-description: Main orchestrator for ticket resolution workflow - fetch, analyze, setup workspace, plan
-argument-hint: <ticket-id> [--auto] [--init] [--source youtrack|github] [--implement]
+description: Main orchestrator for ticket resolution workflow - fetch, analyze, setup workspace, plan, implement, PR
+argument-hint: <ticket-id> [--auto] [--init] [--source youtrack|github] [--implement] [--pr] [--draft]
 allowed-tools: Read, Glob, Grep, Bash, Write, Task, AskUserQuestion, mcp__youtrack__get_issue, mcp__youtrack__get_issue_comments, mcp__youtrack__get_issue_attachments
 ---
 
 # RESOLVE - Ticket Resolution Workflow Orchestrator
 
-This command orchestrates the complete ticket resolution workflow from fetch to implementation plan.
+This command orchestrates the complete ticket resolution workflow from fetch to pull request creation.
 
 ## Input
 
@@ -22,10 +22,14 @@ Extract from arguments:
 - `--auto`: Optional - automatic mode, no questions asked (default: interactive)
 - `--source`: Optional - force source (youtrack, github, file)
 - `--implement`: Optional - launch solo-implement.sh after planning
+- `--pr`: Optional - create pull request after implementation (implied in auto mode)
+- `--draft`: Optional - create PR as draft (default: true, use `--no-draft` for ready PR)
+- `--target`: Optional - target branch for PR (default: auto-detect)
 
 **Mode determination**:
 - If `--init` present → INIT MODE (configure project, then stop)
 - If `--auto` present → AUTOMATIC MODE (no questions, use defaults/detection)
+  - In AUTO mode: always push and create PR after implementation
 - Otherwise → INTERACTIVE MODE (ask user at key decision points)
 
 ---
@@ -246,7 +250,9 @@ Create `.claude/feature/{ticket-id}/status.json`:
     "fetch": "pending",
     "analyze": "pending",
     "workspace": "pending",
-    "plan": "pending"
+    "plan": "pending",
+    "implement": "pending",
+    "finalize": "pending"
   }
 }
 ```
@@ -573,16 +579,18 @@ AskUserQuestion:
       description: "Afficher le plan complet pour review"
     - label: "Lancer l'implementation"
       description: "Executer solo-implement.sh automatiquement"
+    - label: "Implementation + PR"
+      description: "Implementer puis creer une pull request"
     - label: "Terminer"
       description: "Arreter ici, implementer plus tard"
 ```
 
-If "Voir le plan": display full plan content.
-If "Lancer l'implementation": proceed to step 8.
+If "Voir le plan": display full plan content, then ask again.
+If "Lancer l'implementation": proceed to step 8, skip step 9.
+If "Implementation + PR": proceed to step 8, then step 9.
 If "Terminer": show manual implementation command.
 
-**In AUTO mode with --implement**: proceed to step 8 automatically.
-**In AUTO mode without --implement**: show summary and stop.
+**In AUTO mode**: always proceed to step 8, then step 9 (push + PR).
 
 ---
 
@@ -593,6 +601,8 @@ If implementation requested:
 ```bash
 ~/.claude/scripts/solo-implement.sh --feature {ticket-id}
 ```
+
+Update status: `phases.implement = "completed"`, `state = "implementing"`.
 
 Otherwise, inform user:
 
@@ -606,6 +616,142 @@ Options disponibles:
   --phase N      Executer une seule phase
   --start N      Reprendre depuis la phase N
   --verbose      Mode debug
+```
+
+---
+
+## STEP 9: FINALIZE (push + PR)
+
+Read and apply the create-pr skill from `~/.claude/skills/create-pr/SKILL.md`.
+
+### 9.1 Pre-flight Checks
+
+```bash
+# Verify on feature branch
+CURRENT_BRANCH=$(git branch --show-current)
+
+# Check for uncommitted changes
+git status --porcelain
+```
+
+### 9.2 Push Branch
+
+```bash
+git push -u origin {branch-name}
+```
+
+### 9.3 Check Existing PR
+
+```bash
+# Check if PR already exists
+gh pr view {branch-name} --json number,url 2>/dev/null
+```
+
+If PR exists: display URL and skip creation.
+
+### 9.4 INTERACTIVE: PR Options
+
+**In INTERACTIVE mode**, ask:
+
+```
+AskUserQuestion:
+  question: "Creer la pull request ?"
+  header: "PR"
+  options:
+    - label: "Oui, en draft (Recommended)"
+      description: "PR brouillon, a finaliser apres review"
+    - label: "Oui, ready for review"
+      description: "PR prete pour review immediate"
+    - label: "Non, push seulement"
+      description: "Branche poussee, pas de PR"
+```
+
+If target branch is ambiguous:
+
+```
+AskUserQuestion:
+  question: "Quelle branche cible pour la PR ?"
+  header: "Target"
+  options:
+    - label: "{base-branch} (Recommended)"
+      description: "Branche utilisee pour creer la feature"
+    - label: "main"
+      description: "Branche principale"
+    - label: "develop"
+      description: "Branche de developpement"
+```
+
+**In AUTO mode**: create draft PR targeting `{base-branch}` from workspace setup.
+
+### 9.5 Generate PR Content
+
+**Title**: `{type}: {ticket_title} ({ticket_id})`
+
+Example: `feat: Add CSV export for users (PROJ-123)`
+
+**Body**:
+```markdown
+## Summary
+
+{Brief description from ticket}
+
+## Ticket
+
+- **ID**: {ticket_id}
+- **Source**: {source}
+- **Link**: {ticket_url if available}
+
+## Changes
+
+{List of phases implemented}
+
+## Test Plan
+
+{Validation steps from plan}
+```
+
+### 9.6 Create PR
+
+```bash
+gh pr create \
+    --title "{title}" \
+    --body "{body}" \
+    --base "{target-branch}" \
+    --draft  # if draft mode
+```
+
+### 9.7 Update Status
+
+```json
+{
+  "state": "finalized",
+  "phases": {
+    "finalize": "completed"
+  },
+  "pr": {
+    "number": 123,
+    "url": "https://github.com/owner/repo/pull/123",
+    "draft": true,
+    "target": "main"
+  }
+}
+```
+
+### 9.8 Display Result
+
+```markdown
+## Pull Request Creee
+
+- **PR**: #{number}
+- **URL**: {url}
+- **Status**: Draft | Ready for review
+- **Target**: {target-branch}
+
+### Prochaines etapes
+1. Reviewer les changements
+2. Demander des reviews
+3. Marquer ready si draft
+4. Merger apres approbation
 ```
 
 ---
@@ -637,6 +783,23 @@ Erreur: Impossible de generer le plan d'implementation
 - Essayez le workflow "Simple"
 ```
 
+### Push Failed
+```
+Erreur: Impossible de pousser la branche {branch-name}
+- Verifiez votre authentification git
+- Pour HTTPS: gh auth login
+- Pour SSH: ssh-add ~/.ssh/id_rsa
+- Verifiez les permissions sur le repository
+```
+
+### PR Creation Failed
+```
+Erreur: Impossible de creer la pull request
+- Verifiez vos droits sur le repository
+- Tentez: gh auth refresh
+- Verifiez que la branche cible existe
+```
+
 ---
 
 ## MODE SUMMARY
@@ -647,7 +810,10 @@ Erreur: Impossible de generer le plan d'implementation
 | Workflow | Choix utilisateur | Detection auto |
 | Base branch | Choix utilisateur | Config/default |
 | Branch name | Confirmation | Generation auto |
-| Next step | Choix utilisateur | Selon --implement |
+| Implementation | Choix utilisateur | Selon --implement |
+| Push | Choix utilisateur | Toujours |
+| PR creation | Choix utilisateur | Toujours (draft) |
+| Draft mode | Choix utilisateur | Config `pr.draft_by_default` |
 
 ---
 
@@ -664,6 +830,12 @@ Project config in `.claude/ticket-config.json`:
   "complexity": {
     "simple_labels": ["quick-fix"],
     "complex_labels": ["architecture"]
+  },
+  "pr": {
+    "draft_by_default": true,
+    "default_target": null,
+    "include_ticket_link": true,
+    "title_format": "{type}: {title} ({ticket_id})"
   }
 }
 ```
