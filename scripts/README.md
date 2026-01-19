@@ -1,200 +1,332 @@
-# Plan & Implement Workflow
+# Scripts
 
-A structured development workflow that separates planning from implementation,
-using Claude Code for intelligent analysis and automated phase execution.
+Automation scripts for Claude Code workflows.
 
-## Overview
+## Available Scripts
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         WORKFLOW DIAGRAM                            │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  1. PLANNING (Interactive)                                          │
-│  ┌──────────────────────────────────────────────────────────┐      │
-│  │  $ claude                                                 │      │
-│  │  > /plan implement user authentication with JWT           │      │
-│  │                                                           │      │
-│  │  [Claude analyzes, explores, asks questions]              │      │
-│  │  [User validates the plan]                                │      │
-│  │  [Plan saved to .claude/implementation/]                  │      │
-│  └──────────────────────────────────────────────────────────┘      │
-│                            │                                        │
-│                            ▼                                        │
-│  2. IMPLEMENTATION (Automated)                                      │
-│  ┌──────────────────────────────────────────────────────────┐      │
-│  │  $ implement                                              │      │
-│  │                                                           │      │
-│  │  ┌─────────┐   ┌─────────┐   ┌─────────┐                │      │
-│  │  │ Phase 1 │──▶│ Phase 2 │──▶│ Phase N │                │      │
-│  │  │ + commit│   │ + commit│   │ + commit│                │      │
-│  │  └─────────┘   └─────────┘   └─────────┘                │      │
-│  │                                                           │      │
-│  │  Each phase runs with --dangerously-skip-permissions     │      │
-│  │  Fresh context per phase (no /compact needed)            │      │
-│  └──────────────────────────────────────────────────────────┘      │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
+| Script | Description |
+|--------|-------------|
+| `solo-implement.sh` | Automated phased implementation orchestrator |
+| `resolve-worktree.sh` | Worktree wrapper for /resolve --auto mode |
 
-## Quick Start
+---
 
-### 1. Plan your feature
+## solo-implement.sh
+
+Executes implementation plans phase by phase, with automatic commits and validation.
+
+### Usage
 
 ```bash
-claude
-> /plan implement feature X with requirements Y
+# From /resolve workflow (recommended)
+/resolve PROJ-123 --implement
+
+# Direct execution with ticket context
+solo-implement.sh --feature PROJ-123
+
+# Direct execution with legacy plan
+solo-implement.sh --plan .claude/implementation/plan.md
 ```
 
-Claude will:
-- Analyze your request deeply
-- Explore the codebase with parallel agents
-- Ask clarification questions
-- Create a phased implementation plan
-- Wait for your validation
-- Save the plan to `.claude/implementation/`
-
-### 2. Execute the implementation
+### Options
 
 ```bash
-implement
+solo-implement.sh --help                    # Show all options
+solo-implement.sh --feature PROJ-123        # Use ticket feature directory
+solo-implement.sh --plan path/to/plan.md    # Use specific plan file
+solo-implement.sh --dry-run                 # Preview without executing
+solo-implement.sh --phase 3                 # Execute only phase 3
+solo-implement.sh --start 2                 # Resume from phase 2
+solo-implement.sh --no-commit               # Skip automatic commits
+solo-implement.sh --no-validate             # Skip validation commands
+solo-implement.sh --verbose                 # Debug mode
+solo-implement.sh --thinking-budget 10000   # Extended thinking for complex phases
 ```
 
-Or with the wrapper:
-```bash
-dev run
+### Plan Search Order
+
+1. Explicit `--plan FILE` or `--feature ID`
+2. Most recent in `.claude/feature/*/plan.md`
+3. Most recent in `.claude/implementation/*.md` (legacy)
+
+### How It Works
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  solo-implement.sh --feature PROJ-123                       │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  1. Load plan from .claude/feature/PROJ-123/plan.md         │
+│                                                             │
+│  2. For each phase:                                         │
+│     ┌─────────────────────────────────────────────────┐    │
+│     │  claude --dangerously-skip-permissions          │    │
+│     │  > Implement phase N according to plan          │    │
+│     │  > Run validation command                       │    │
+│     │  > Auto-commit with phase commit message        │    │
+│     └─────────────────────────────────────────────────┘    │
+│                                                             │
+│  3. Update plan with progress markers                       │
+│                                                             │
+│  4. Report metrics (cost, tokens, lines changed)            │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-The script will:
-- Read the latest plan
-- Execute each phase with `claude --dangerously-skip-permissions`
-- Commit after each phase
-- Update progress in the plan file
-- Stop on errors (resumable)
+### Plan File Format
 
-## Commands Reference
-
-### Slash Commands
-
-| Command | Description |
-|---------|-------------|
-| `/plan <feature>` | Full AEP workflow → validated plan file |
-| `/aep <feature>` | Original AEP (no file output, simpler) |
-
-### Shell Commands
-
-| Command | Description |
-|---------|-------------|
-| `dev plan <feature>` | Opens Claude for planning |
-| `dev run [options]` | Executes implementation |
-| `dev status` | Shows all plans and progress |
-| `dev resume` | Continues from last failed phase |
-| `implement [options]` | Direct access to orchestrator |
-
-### Implementation Options
-
-```bash
-implement --help                    # Show all options
-implement --dry-run                 # Preview without executing
-implement --phase 3                 # Execute only phase 3
-implement --start 2 --end 4         # Execute phases 2-4
-implement --plan path/to/plan.md    # Use specific plan
-implement --no-commit               # Skip automatic commits
-implement --verbose                 # Detailed output
-```
-
-## Plan File Format
-
-Plans are saved in `.claude/implementation/YYYY-MM-DD_HH-MM_feature-slug.md`:
+Plans are read from `.claude/feature/{ticket-id}/plan.md`:
 
 ```markdown
 ---
-feature: user-authentication
+feature: add-csv-export
+ticket_id: PROJ-123
 created: 2025-01-14T15:30:00+01:00
 status: pending
 total_phases: 3
 ---
 
-# Implementation Plan: User Authentication
+# Implementation Plan: Add CSV Export
 
 ## Summary
+
 Brief description of the implementation.
 
-## Phase 1: Database Schema
-**Goal**: Create user and session tables
-**Files**:
-- `migrations/001_users.sql` - User table
-- `migrations/002_sessions.sql` - Session table
-**Validation**: `php bin/console doctrine:schema:validate`
-**Commit message**: `feat(auth): add user and session tables`
+## Phase 1: Create Export Service
 
-## Phase 2: Authentication Service
-**Goal**: Implement JWT authentication logic
+**Goal**: Implement the export service
 **Files**:
-- `src/Security/JwtAuthenticator.php` - Main authenticator
-- `src/Service/TokenService.php` - Token generation
-**Validation**: `php bin/phpunit tests/Security/`
-**Commit message**: `feat(auth): implement JWT authenticator`
+- `src/Service/ExportService.php` - Main service
 
-## Phase 3: API Endpoints
+**Validation**: `bin/phpunit tests/Service/ExportServiceTest.php`
+
+**Commit message**: `feat(export): add ExportService`
+
+## Phase 2: Add API Endpoint
+
+**Goal**: Create the REST endpoint
+**Files**:
+- `src/Controller/Api/ExportController.php`
+
+**Validation**: `bin/phpunit tests/Controller/Api/`
+
+**Commit message**: `feat(api): add export endpoint`
+
+## Phase 3: Frontend Integration
+
 ...
-
-## Risks & Mitigations
-- Risk 1: Mitigation
-
-## Post-Implementation
-- [ ] Run full test suite
-- [ ] Update API documentation
 ```
 
-## Progress Tracking
+### Progress Tracking
 
 The plan file is updated as phases complete:
 
 ```markdown
-## Phase 1: Database Schema ✅ (2025-01-14T15:45:00+01:00)
-## Phase 2: Authentication Service ✅ (2025-01-14T16:02:00+01:00)
-## Phase 3: API Endpoints    ← Currently executing
+## Phase 1: Create Export Service ✅ (2025-01-14T15:45:00)
+
+## Phase 2: Add API Endpoint ✅ (2025-01-14T16:02:00)
+
+## Phase 3: Frontend Integration ← Currently executing
 ```
 
-Status values:
-- `pending` - Not started
-- `in-progress` - Currently executing
-- `partial` - Stopped mid-execution (resumable)
-- `completed` - All phases done
+### Output Example
 
-## Error Handling
+```
+╔═══════════════════════════════════════════════════════════╗
+║     SOLO-IMPLEMENT.SH - Automated Phase Orchestrator      ║
+╚═══════════════════════════════════════════════════════════╝
+
+Using plan: .claude/feature/proj-123/plan.md
+Feature: add-csv-export
+Total phases: 3
+
+═══════════════════════════════════════════════════════════
+  Phase 1/3: Create Export Service
+═══════════════════════════════════════════════════════════
+
+[Claude implements...]
+
+✓ Validation passed
+✓ Committed: feat(export): add ExportService
+
+┌─────────────────────────────────────────────────────────┐
+│ Phase 1 Metrics                                         │
+├─────────────────────────────────────────────────────────┤
+│  💰 Cost:   $0.0234                                     │
+│  📝 Lines:  +87, -0                                     │
+│  📊 Context: [████████░░░░░░░░░░░░] 42%                 │
+└─────────────────────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════
+  Phase 2/3: Add API Endpoint
+═══════════════════════════════════════════════════════════
+
+...
+
+╔═════════════════════════════════════════════════════════╗
+║ TOTAL SUMMARY (3 phases)                                ║
+╠═════════════════════════════════════════════════════════╣
+║  💰 Total Cost:   $0.0891                               ║
+║  📝 Total Lines:  +156, -3                              ║
+║  📥 Total Input:  45.2K tokens                          ║
+║  📤 Total Output: 12.1K tokens                          ║
+╚═════════════════════════════════════════════════════════╝
+
+═══════════════════════════════════════════════════════════
+  IMPLEMENTATION COMPLETED SUCCESSFULLY!
+═══════════════════════════════════════════════════════════
+```
+
+### Error Handling
 
 If a phase fails:
+
 1. Script stops immediately
 2. Phase is marked with ❌ in the plan
 3. Status is set to `partial`
-4. Resume with: `dev resume` or `implement --start N`
+4. Resume with: `solo-implement.sh --feature PROJ-123 --start N`
 
-## Best Practices
+### Integration with /resolve
 
-1. **Write clear feature descriptions** - The better the input, the better the plan
-2. **Validate thoroughly** - Iterate on the plan until it's right
-3. **Keep phases atomic** - Each phase should be independently committable
-4. **Include validation commands** - How to verify each phase works
-5. **Use conventional commits** - Pre-defined commit messages per phase
+The `/resolve` workflow automatically calls `solo-implement.sh`:
 
-## File Locations
+```bash
+# Interactive mode - asks before implementing
+/resolve PROJ-123
+
+# Auto mode - implements automatically
+/resolve PROJ-123 --auto
+```
+
+After implementation, `/resolve` continues with:
+- Code simplification (`/simplify`)
+- Code review (`/review-code`)
+- Push and PR creation (`/create-pr`)
+
+---
+
+## resolve-worktree.sh
+
+Wrapper script for running `/resolve --auto` with git worktree support. This script handles the worktree creation and directory change that `/resolve` cannot do on its own.
+
+### When to Use
+
+Use this script when you want:
+- Full automatic mode (`--auto`) with worktree isolation
+- Each ticket in its own worktree directory
+- Complete workflow without manual intervention
+
+### Usage
+
+```bash
+# Basic usage
+resolve-worktree.sh PROJ-123
+
+# With additional options
+resolve-worktree.sh PROJ-123 --skip-simplify
+resolve-worktree.sh #456 --draft
+```
+
+### What It Does
 
 ```
-~/.claude/
-├── commands/
-│   ├── plan.md          # /plan command
-│   └── aep.md           # /aep command (simpler version)
-├── scripts/
-│   ├── implement.sh     # Phase orchestrator
-│   └── dev.sh           # Convenience wrapper
-└── ...
-
-.claude/implementation/  # Per-project plan storage
-├── 2025-01-14_15-30_user-authentication.md
-└── 2025-01-15_09-00_api-rate-limiting.md
+┌─────────────────────────────────────────────────────────────┐
+│  resolve-worktree.sh PROJ-123                               │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  1. Read config from .claude/ticket-config.json             │
+│                                                             │
+│  2. Create worktree:                                        │
+│     - Use configured worktree_command if set                │
+│     - Or use Makefile target if available                   │
+│     - Or create manually: git worktree add                  │
+│                                                             │
+│  3. Copy essential files to worktree:                       │
+│     - .env, .env.local                                      │
+│     - .claude/ directory                                    │
+│                                                             │
+│  4. Change to worktree directory                            │
+│                                                             │
+│  5. Launch: claude -p "/resolve PROJ-123 --auto --skip-workspace" │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
 ```
+
+### Configuration
+
+Configure worktree behavior in `.claude/ticket-config.json`:
+
+```json
+{
+  "workspace": {
+    "prefer_worktree": true,
+    "worktree_parent": "../worktrees",
+    "worktree_command": "make worktree-new TICKET={{ticket_id}}"
+  },
+  "branches": {
+    "default_base": "main"
+  }
+}
+```
+
+**Options**:
+- `worktree_parent`: Directory where worktrees are created (default: `../worktrees`)
+- `worktree_command`: Custom command for worktree creation
+  - Use `{{ticket_id}}` and `{{branch_name}}` as placeholders
+  - Example: `make worktree-new TICKET={{ticket_id}}`
+
+### Worktree Creation Order
+
+The script tries these methods in order:
+
+1. **Configured command**: If `workspace.worktree_command` is set
+2. **Makefile target**: If `worktree` or `worktree-new` target exists
+3. **Manual fallback**: `git worktree add` with automatic branch creation
+
+### Example Output
+
+```
+╔═══════════════════════════════════════════════════════════╗
+║     RESOLVE-WORKTREE - Automated Worktree Setup           ║
+╚═══════════════════════════════════════════════════════════╝
+
+Ticket: PROJ-123
+
+▶ Loading config from .claude/ticket-config.json
+▶ Configuration:
+  Base branch: main
+  Branch name: feat/proj-123
+  Worktree path: ../worktrees/proj-123
+
+▶ Creating worktree...
+▶ Fetching from origin...
+▶ Creating git worktree...
+▶ Worktree ready at: ../worktrees/proj-123
+▶ Copying essential files...
+  Copied: .env
+  Copied: .claude/
+
+▶ Changing to worktree directory...
+  Working directory: /home/user/worktrees/proj-123
+
+▶ Launching Claude Code...
+
+═══════════════════════════════════════════════════════════
+
+Running: claude -p "/resolve PROJ-123 --auto --skip-workspace"
+```
+
+### Comparison: /resolve --auto vs resolve-worktree.sh
+
+| Feature | `/resolve --auto` | `resolve-worktree.sh` |
+|---------|-------------------|----------------------|
+| Creates branch | Yes | No (uses worktree) |
+| Creates worktree | No | Yes |
+| Changes directory | No | Yes |
+| Isolation | Same directory | Separate directory |
+| Best for | Quick fixes | Large features |
+
+---
 
 ## Troubleshooting
 
@@ -205,7 +337,7 @@ If a phase fails:
 - Initialize git: `git init`
 
 **"No plan files found"**
-- Create a plan first: `claude` then `/plan <feature>`
+- Create a plan with `/resolve <ticket-id>` first
 
 **Phase keeps failing**
 - Check the error in the plan file

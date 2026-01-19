@@ -11,7 +11,8 @@
     "prefer_worktree": false,
     "worktree_parent": "../worktrees",
     "worktree_command": null,
-    "auto_stash": true
+    "auto_stash": true,
+    "skip_in_interactive": true
   },
   "branches": {
     "default_base": "main",
@@ -57,5 +58,12 @@
     "agent": "auto",
     "scope": "modified",
     "auto_apply": false
+  },
+  "review": {
+    "enabled": true,
+    "auto_fix": false,
+    "severity_threshold": "important",
+    "model": null,
+    "block_on_critical": true
   }
 }

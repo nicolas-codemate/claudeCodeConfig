@@ -37,12 +37,19 @@
         "analyzed",
         "workspace_ready",
         "planned",
+        "plan_validated",
         "implementing",
+        "reviewed",
         "finalized",
         "completed",
         "failed"
       ],
       "description": "Current overall workflow state"
+    },
+    "plan_validated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO timestamp when plan was validated (for --continue resumption)"
     },
     "complexity": {
       "type": "string",
@@ -112,6 +119,11 @@
           "default": "pending"
         },
         "simplify": {
+          "type": "string",
+          "enum": ["pending", "in_progress", "completed", "skipped", "failed"],
+          "default": "pending"
+        },
+        "review": {
           "type": "string",
           "enum": ["pending", "in_progress", "completed", "skipped", "failed"],
           "default": "pending"
