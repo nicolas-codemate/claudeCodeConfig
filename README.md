@@ -72,6 +72,31 @@ Modular system for automated ticket resolution, integrating YouTrack (MCP) and G
 | **Interactive** (default) | Asks questions at each key step                          |
 | **Automatic** (`--auto`)  | Uses detected/configured values, always push + create PR |
 
+### Full Automation (100% Autonomous)
+
+To run a completely autonomous workflow from workspace creation to PR:
+
+```bash
+# Option 1: With branch (most common)
+/resolve PROJ-123 --auto
+
+# Option 2: With worktree (isolated directory)
+~/.claude/scripts/resolve-worktree.sh PROJ-123
+```
+
+Both options will:
+1. Create workspace (branch or worktree)
+2. Fetch ticket
+3. Analyze complexity
+4. Explore codebase (if needed)
+5. Generate and auto-validate plan
+6. Implement all phases
+7. Simplify code
+8. Review code
+9. Push branch and create PR (draft)
+
+**When to use worktree?** When you want each ticket in its own isolated directory (useful for parallel work or keeping main repo clean).
+
 ### /resolve Options
 
 ```bash
