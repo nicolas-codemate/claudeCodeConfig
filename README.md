@@ -16,14 +16,14 @@
 
 ## Structure
 
-| Directory | Description |
-|-----------|-------------|
-| `agents/` | Custom agent definitions |
-| `commands/` | Slash commands (resolve, commit, fix-ci...) |
-| `hooks/` | Pre/post tool use hooks |
-| `scripts/` | Automation scripts (solo-implement.sh) |
-| `skills/` | Skill definitions (AEP, Architect, ticket-workflow...) |
-| `statusline/` | Status bar configuration |
+| Directory     | Description                                            |
+|---------------|--------------------------------------------------------|
+| `agents/`     | Custom agent definitions                               |
+| `commands/`   | Slash commands (resolve, commit, fix-ci...)            |
+| `hooks/`      | Pre/post tool use hooks                                |
+| `scripts/`    | Automation scripts (solo-implement.sh)                 |
+| `skills/`     | Skill definitions (AEP, Architect, ticket-workflow...) |
+| `statusline/` | Status bar configuration                               |
 
 ## Key Files
 
@@ -49,26 +49,28 @@ Modular system for automated ticket resolution, integrating YouTrack (MCP) and G
     ├─► Create plan → plan.md
     ├─► Implementation via solo-implement.sh
     ├─► Code simplification (auto-detected agent)
+    ├─► Code review (dual perspective: tech + product)
     └─► Push + Create PR (draft by default)
 ```
 
 ### Available Commands
 
-| Command | Description |
-|---------|-------------|
-| `/resolve <ticket-id>` | Complete resolution workflow |
-| `/fetch-ticket <ticket-id>` | Fetch a ticket only |
-| `/analyze-ticket <ticket-id>` | Analyze complexity |
-| `/plan-ticket <ticket-id>` | Create plan from existing ticket |
-| `/simplify` | Simplify code using auto-detected agent |
-| `/create-pr` | Push branch and create pull request |
+| Command                       | Description                                        |
+|-------------------------------|----------------------------------------------------|
+| `/resolve <ticket-id>`        | Complete resolution workflow                       |
+| `/fetch-ticket <ticket-id>`   | Fetch a ticket only                                |
+| `/analyze-ticket <ticket-id>` | Analyze complexity                                 |
+| `/plan-ticket <ticket-id>`    | Create plan from existing ticket                   |
+| `/simplify`                   | Simplify code using auto-detected agent            |
+| `/review-code`                | Code review with dual perspective (tech + product) |
+| `/create-pr`                  | Push branch and create pull request                |
 
 ### /resolve Modes
 
-| Mode | Description |
-|------|-------------|
-| **Interactive** (default) | Asks questions at each key step |
-| **Automatic** (`--auto`) | Uses detected/configured values, always push + create PR |
+| Mode                      | Description                                              |
+|---------------------------|----------------------------------------------------------|
+| **Interactive** (default) | Asks questions at each key step                          |
+| **Automatic** (`--auto`)  | Uses detected/configured values, always push + create PR |
 
 ### /resolve Options
 
@@ -82,8 +84,8 @@ Modular system for automated ticket resolution, integrating YouTrack (MCP) and G
 # Automatic mode - no questions, implements + creates PR
 /resolve PROJ-123 --auto
 
-# Auto mode with immediate implementation (legacy, same as --auto)
-/resolve PROJ-123 --auto --implement
+# Resume after plan validation (interactive mode)
+/resolve PROJ-123 --continue
 
 # Create PR as ready (not draft)
 /resolve PROJ-123 --auto --no-draft
@@ -94,27 +96,34 @@ Modular system for automated ticket resolution, integrating YouTrack (MCP) and G
 # Skip code simplification
 /resolve PROJ-123 --auto --skip-simplify
 
+# Skip code review
+/resolve PROJ-123 --auto --skip-review
+
 # Force source
 /resolve PROJ-123 --source youtrack
 ```
 
-### Interactive Mode Questions
+### Interactive Mode Flow
 
 1. **Resume**: If workflow exists, resume or restart?
 2. **Workflow**: Simple / Standard / Full (AEP) / Custom?
-3. **Base branch**: main / develop / current branch?
-4. **Branch name**: Auto-generated / short / custom?
-5. **Final action**: View plan / Implementation / Implementation + PR / Finish?
-6. **Simplify** (after implementation): Yes / No?
-7. **PR mode** (if PR selected): Draft / Ready for review / Push only?
+3. **Plan Validation Loop**:
+   - Valider et implémenter → `/compact` → implementation
+   - Valider et arrêter → STOP (resume via `--continue`)
+   - Modifier le plan → apply changes, loop
+   - Régénérer le plan → regenerate, loop
+4. **Simplify** (after implementation): Yes / No?
+5. **Review** (after simplify): View details / Auto-fix / Manual fix / Ignore?
+
+**Note**: In interactive mode, user manages their own branch/workspace. Push and PR are user's responsibility.
 
 ### Complexity Levels
 
-| Level | Score | Exploration | Planning |
-|-------|-------|-------------|----------|
-| SIMPLE | 0-2 | Skip | Basic |
-| MEDIUM | 3-5 | 1 agent | Standard |
-| COMPLEX | 6+ | 3 AEP agents | Architect |
+| Level   | Score | Exploration  | Planning  |
+|---------|-------|--------------|-----------|
+| SIMPLE  | 0-2   | Skip         | Basic     |
+| MEDIUM  | 3-5   | 1 agent      | Standard  |
+| COMPLEX | 6+    | 3 AEP agents | Architect |
 
 ### Generated Files
 
@@ -125,22 +134,20 @@ Each ticket creates a folder in the project:
 ├── status.json   # Workflow state (for resume) + PR info
 ├── ticket.md     # Original ticket content
 ├── analysis.md   # Complexity analysis
-└── plan.md       # Implementation plan
+├── plan.md       # Implementation plan
+└── review.md     # Code review report (after implementation)
 ```
 
 ### Implementation
 
-After planning, start the implementation:
+After plan validation, start the implementation:
 
 ```bash
-# Via the --implement flag
-/resolve PROJ-123 --implement
+# Resume after "Valider et arrêter" in interactive mode
+/resolve PROJ-123 --continue
 
-# Or manually
+# Or manually via solo-implement.sh
 solo-implement.sh --feature PROJ-123
-
-# Or from .claude/implementation (legacy workflow)
-solo-implement.sh
 ```
 
 ### Pull Request Creation
@@ -165,6 +172,7 @@ After implementation, create a PR:
 ```
 
 **Auto mode behavior:**
+
 - Always pushes the branch
 - Always creates PR (if not exists)
 - Uses `pr.draft_by_default` config (default: true)
@@ -190,15 +198,63 @@ After implementation, code can be automatically simplified using project-specifi
 
 **Available agents:**
 
-| Agent | Auto-detected when | Focus |
-|-------|-------------------|-------|
+| Agent     | Auto-detected when                          | Focus                          |
+|-----------|---------------------------------------------|--------------------------------|
 | `symfony` | `symfony/framework-bundle` in composer.json | Symfony patterns, DI, Doctrine |
-| `laravel` | `laravel/framework` in composer.json | Laravel patterns, Eloquent |
-| `generic` | Default / JS/TS projects | General best practices |
+| `laravel` | `laravel/framework` in composer.json        | Laravel patterns, Eloquent     |
+| `generic` | Default / JS/TS projects                    | General best practices         |
 
 **In `/resolve` workflow:**
+
 - Auto mode: runs simplification if `simplify.auto_apply = true`
 - Interactive mode: asks before running
+
+### Code Review
+
+After simplification, code is reviewed using a dual-perspective agent:
+
+```bash
+# Standalone usage
+/review-code
+
+# With ticket context (loads ticket.md + plan.md)
+/review-code --ticket PROJ-123
+
+# Interactively fix issues
+/review-code --ticket PROJ-123 --fix
+
+# Only report critical issues
+/review-code --severity critical
+```
+
+**Dual perspective:**
+
+| Perspective                      | Focus                                                 |
+|----------------------------------|-------------------------------------------------------|
+| **Technical** (Senior Engineer)  | Code quality, SOLID, YAGNI, KISS, maintainability     |
+| **Functional** (Product Manager) | All requirements met, acceptance criteria, edge cases |
+
+**Core principles:**
+
+- **Readability > Performance**: Optimize only when measured bottlenecks exist
+- **SOLID**: Single responsibility, open/closed, etc.
+- **YAGNI**: No speculative code
+- **KISS**: Simplest solution that works
+- **Explicit naming**: Self-documenting names
+- **Codebase consistency**: Follow existing patterns
+
+**Issue severities:**
+
+| Severity      | Description                                | Action                  |
+|---------------|--------------------------------------------|-------------------------|
+| **Critical**  | Bugs, security issues, broken requirements | Must fix before merge   |
+| **Important** | Maintainability, readability issues        | Should fix before merge |
+| **Minor**     | Style suggestions, minor improvements      | Nice to have            |
+
+**In `/resolve` workflow:**
+
+- Auto mode: auto-fixes if `review.auto_fix = true`, blocks on critical if `review.block_on_critical = true`
+- Interactive mode: asks for each issue category
 
 ---
 
@@ -240,23 +296,19 @@ EOF
 ```json
 {
   "default_source": "auto",
-
   "youtrack": {
     "project_prefix": "PROJ"
   },
-
   "github": {
     "repo": "owner/repo",
     "issue_prefix": "#"
   },
-
   "workspace": {
     "prefer_worktree": false,
     "worktree_parent": "../worktrees",
     "worktree_command": null,
     "auto_stash": true
   },
-
   "branches": {
     "default_base": "main",
     "prefix_mapping": {
@@ -269,27 +321,33 @@ EOF
     "include_ticket_id": true,
     "slug_max_length": 50
   },
-
   "complexity": {
     "auto_detect": true,
     "default_level": "medium",
-    "simple_labels": ["quick-fix", "typo", "documentation", "trivial"],
-    "complex_labels": ["needs-analysis", "architecture", "breaking-change", "migration"],
+    "simple_labels": [
+      "quick-fix",
+      "typo",
+      "documentation",
+      "trivial"
+    ],
+    "complex_labels": [
+      "needs-analysis",
+      "architecture",
+      "breaking-change",
+      "migration"
+    ],
     "simple_threshold": 2,
     "complex_threshold": 6
   },
-
   "planning": {
     "use_architect": true,
     "use_aep": true,
     "max_explore_agents": 3
   },
-
   "storage": {
     "feature_dir": ".claude/feature",
     "keep_completed": true
   },
-
   "pr": {
     "draft_by_default": true,
     "default_target": null,
@@ -298,12 +356,17 @@ EOF
     "auto_push": true,
     "title_format": "{type}: {title} ({ticket_id})"
   },
-
   "simplify": {
     "enabled": true,
     "agent": "auto",
     "scope": "modified",
     "auto_apply": false
+  },
+  "review": {
+    "enabled": true,
+    "auto_fix": false,
+    "severity_threshold": "important",
+    "block_on_critical": true
   }
 }
 ```
@@ -311,69 +374,109 @@ EOF
 ### Configuration Options
 
 #### `default_source`
+
 - `"auto"`: Auto-detect based on ticket ID pattern
 - `"youtrack"`: Always use YouTrack
 - `"github"`: Always use GitHub
 - `"file"`: Always use local file
 
 #### `youtrack.project_prefix`
+
 Default prefix for YouTrack tickets. Allows using `/resolve 123` instead of `/resolve PROJ-123`.
 
 #### `github.repo`
+
 Default repository in `owner/repo` format. Allows using `/resolve #123` without specifying the repo.
 
 #### `branches.default_base`
+
 Base branch for creating feature branches. Typically `main`, `master`, or `develop`.
 
 #### `branches.prefix_mapping`
+
 Mapping between ticket types and branch prefixes:
+
 - Bug → `fix/proj-123-...`
 - Feature → `feat/proj-123-...`
 - Refactoring → `refactor/proj-123-...`
 
 #### `complexity.simple_labels` / `complex_labels`
+
 Labels that force complexity level, regardless of calculated score.
 
 #### `complexity.simple_threshold` / `complex_threshold`
+
 Score thresholds for automatic classification:
+
 - Score ≤ 2 → SIMPLE
 - Score ≥ 6 → COMPLEX
 - In between → MEDIUM
 
 #### `pr.draft_by_default`
+
 Create PRs as draft by default. Default: `true`.
 
 #### `pr.default_target`
+
 Default target branch for PRs. If `null`, uses `branches.default_base`.
 
 #### `pr.include_ticket_link`
+
 Include ticket link in PR body. Default: `true`.
 
 #### `pr.include_test_plan`
+
 Include validation steps from plan in PR body. Default: `true`.
 
 #### `pr.title_format`
+
 PR title format template. Placeholders: `{type}`, `{title}`, `{ticket_id}`.
 Default: `"{type}: {title} ({ticket_id})"`.
 
 #### `simplify.enabled`
+
 Enable code simplification phase. Default: `true`.
 
 #### `simplify.agent`
+
 Which simplifier to use:
+
 - `"auto"`: Detect based on project type (symfony, laravel, generic)
 - `"symfony"`: Force Symfony simplifier
 - `"laravel"`: Force Laravel simplifier
 - `"generic"`: Force generic simplifier
 
 #### `simplify.scope`
+
 Scope of files to simplify:
+
 - `"modified"`: Files changed in current branch (default)
 - `"phase"`: Files from last implementation phase
 - `"all"`: Entire codebase
 
 #### `simplify.auto_apply`
+
 Automatically apply simplifications without asking (auto mode only). Default: `false`.
+
+#### `review.enabled`
+
+Enable code review phase. Default: `true`.
+
+#### `review.auto_fix`
+
+Automatically apply suggested fixes (auto mode only, non-critical issues). Default: `false`.
+
+#### `review.severity_threshold`
+
+Minimum severity level to report:
+
+- `"critical"`: Only critical issues
+- `"important"`: Important and critical (default)
+- `"minor"`: All issues
+
+#### `review.block_on_critical`
+
+Prevent PR creation if critical issues exist. Default: `true`.
 
 ---
 
@@ -384,6 +487,7 @@ Worktrees allow working on multiple tickets in parallel in separate directories.
 ### Automatic Detection
 
 The workflow automatically detects if the project supports worktrees by searching for:
+
 - Makefile targets: `worktree:`, `worktree-new:`, `wt-setup:`
 - Scripts: `scripts/*worktree*`, `bin/*wt*`
 - npm/composer scripts containing "worktree"
@@ -422,36 +526,52 @@ worktree-remove: ## Remove worktree
 
 ### Behavior
 
-| Situation | Action |
-|-----------|--------|
-| Tooling detected | Offers branch/worktree choice |
-| No tooling | Uses branch (no worktree mention) |
-| `prefer_worktree: true` without tooling | Warning + fallback to branch |
+| Situation                               | Action                            |
+|-----------------------------------------|-----------------------------------|
+| Tooling detected                        | Offers branch/worktree choice     |
+| No tooling                              | Uses branch (no worktree mention) |
+| `prefer_worktree: true` without tooling | Warning + fallback to branch      |
 
 ---
 
 ## Available Skills
 
-| Skill | Description |
-|-------|-------------|
-| `aep` | Analyze-Explore-Plan methodology |
-| `architect` | Architecture guidelines for quality plans |
-| `fetch-ticket` | Multi-source ticket retrieval |
-| `analyze-ticket` | Complexity analysis and scoring |
-| `setup-workspace` | Branch/worktree creation |
-| `ticket-workflow` | State machine and coordination |
-| `create-pr` | Push branch and create pull request |
+| Skill             | Description                                   |
+|-------------------|-----------------------------------------------|
+| `aep`             | Analyze-Explore-Plan methodology              |
+| `architect`       | Architecture guidelines for quality plans     |
+| `fetch-ticket`    | Multi-source ticket retrieval                 |
+| `analyze-ticket`  | Complexity analysis and scoring               |
+| `setup-workspace` | Branch/worktree creation                      |
+| `ticket-workflow` | State machine and coordination                |
+| `code-review`     | Dual-perspective code review (tech + product) |
+| `create-pr`       | Push branch and create pull request           |
 
 ---
 
-## Simplifier Agents
+## Agents
 
-| Agent | File | Use Case |
-|-------|------|----------|
-| `code-simplifier` | `agents/code-simplifier.md` | Generic (JS/TS/Python/Go) |
-| `symfony-simplifier` | `agents/symfony-simplifier.md` | Symfony/PHP projects |
+### Simplifier Agents
+
+| Agent                | File                           | Use Case                  |
+|----------------------|--------------------------------|---------------------------|
+| `code-simplifier`    | `agents/code-simplifier.md`    | Generic (JS/TS/Python/Go) |
+| `symfony-simplifier` | `agents/symfony-simplifier.md` | Symfony/PHP projects      |
 
 Agents are auto-detected based on project type, or can be forced via `--agent` flag or config.
+
+### Review Agent
+
+| Agent           | File                      | Use Case                     |
+|-----------------|---------------------------|------------------------------|
+| `code-reviewer` | `agents/code-reviewer.md` | Dual-perspective code review |
+
+The code-reviewer agent applies senior engineer standards with focus on:
+
+- **SOLID principles**: Single responsibility, open/closed, etc.
+- **YAGNI**: No unnecessary code
+- **KISS**: Simplest working solution
+- **Readability > Performance**: Maintainable code first
 
 ---
 
@@ -478,6 +598,7 @@ solo-implement.sh --feature PROJ-123 --verbose      # Debug mode
 ```
 
 **Plan search order**:
+
 1. Explicit `--plan FILE` or `--feature ID`
 2. Most recent in `.claude/feature/*/plan.md`
 3. Most recent in `.claude/implementation/*.md`
@@ -495,7 +616,9 @@ The YouTrack MCP server must be configured in `~/.claude/settings.json`:
   "mcpServers": {
     "youtrack": {
       "command": "node",
-      "args": ["/path/to/youtrack-mcp/dist/index.js"],
+      "args": [
+        "/path/to/youtrack-mcp/dist/index.js"
+      ],
       "env": {
         "YOUTRACK_URL": "https://your-instance.youtrack.cloud",
         "YOUTRACK_TOKEN": "your-token"
@@ -707,8 +830,8 @@ Done! PR ready for review.
 # Create ready PR (not draft)
 > /resolve MYAPP-456 --auto --no-draft
 
-# Skip PR creation, just implement
-> /resolve MYAPP-456 --implement
+# Interactive mode: validates plan, user manages push/PR
+> /resolve MYAPP-456
 ```
 
 ---
@@ -800,7 +923,8 @@ $ tree .claude/feature/myapp-123/
 ├── status.json      # Workflow state + PR info
 ├── ticket.md        # Original ticket (markdown)
 ├── analysis.md      # Complexity analysis + exploration
-└── plan.md          # Plan for solo-implement.sh
+├── plan.md          # Plan for solo-implement.sh
+└── review.md        # Code review report
 
 $ cat .claude/feature/myapp-123/status.json
 {
@@ -820,6 +944,8 @@ $ cat .claude/feature/myapp-123/status.json
     "workspace": "completed",
     "plan": "completed",
     "implement": "completed",
+    "simplify": "completed",
+    "review": "completed",
     "finalize": "completed"
   },
   "pr": {

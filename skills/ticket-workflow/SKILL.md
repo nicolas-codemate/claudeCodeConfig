@@ -201,10 +201,17 @@ Continuer ? [O/n]
 3. Save plan.md
 4. Update status: `state = "planned"`, `phases.plan = "completed"`
 
-### Phase: Implement (optional)
-1. Only if --implement flag
+### Phase: Plan Validation
+**AUTO mode**: Auto-validate, continue to implement
+**INTERACTIVE mode**: Validation loop (Valider et implémenter / Valider et arrêter / Modifier / Régénérer)
+- Update status: `state = "plan_validated"`, `plan_validated_at = "{timestamp}"`
+
+### Phase: Implement
+**AUTO mode**: Always executed after plan validation
+**INTERACTIVE mode**: Via "Valider et implémenter" choice or `--continue` flag
+1. Execute `/compact` to clear context
 2. Call solo-implement.sh --feature {ticket-id}
-3. Update status: `state = "implementing"` → `state = "completed"`
+3. Update status: `state = "implementing"` → `phases.implement = "completed"`
 
 ## Configuration Integration
 

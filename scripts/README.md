@@ -19,13 +19,14 @@ Executes implementation plans phase by phase, with automatic commits and validat
 
 ```bash
 # From /resolve workflow (recommended)
-/resolve PROJ-123 --implement
+/resolve PROJ-123 --auto          # Full automatic workflow
+/resolve PROJ-123 --continue      # Resume after plan validation
 
 # Direct execution with ticket context
 solo-implement.sh --feature PROJ-123
 
-# Direct execution with legacy plan
-solo-implement.sh --plan .claude/implementation/plan.md
+# Direct execution with specific plan
+solo-implement.sh --plan path/to/plan.md
 ```
 
 ### Options
