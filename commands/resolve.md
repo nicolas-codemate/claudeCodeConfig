@@ -1,6 +1,6 @@
 ---
 description: Main orchestrator for ticket resolution workflow - fetch, analyze, plan, implement, simplify, review, PR
-argument-hint: <ticket-id> [--auto] [--continue] [--init] [--source youtrack|github] [--skip-workspace] [--skip-simplify] [--skip-review] [--pr] [--draft]
+argument-hint: <ticket-id> [--auto] [--continue] [--plan-only] [--init] [--source youtrack|github] [--skip-workspace] [--skip-simplify] [--skip-review] [--pr] [--draft]
 allowed-tools: Read, Glob, Grep, Bash, Write, Task, AskUserQuestion, mcp__youtrack__get_issue, mcp__youtrack__get_issue_comments, mcp__youtrack__get_issue_attachments
 ---
 
@@ -22,6 +22,7 @@ Extract from arguments:
 - `--init`: Initialize project configuration (no ticket needed)
 - `--auto`: Automatic mode, no questions asked (default: interactive)
 - `--continue`: Resume from validated plan (skip to implementation)
+- `--plan-only`: Stop after plan creation, suggest solo-implement.sh for epics
 - `--source`: Force source (youtrack, github, file)
 - `--skip-workspace`: Skip workspace setup (used by resolve-worktree.sh wrapper)
 - `--skip-simplify`: Skip code simplification phase
@@ -34,12 +35,13 @@ Extract from arguments:
 
 ## Mode Determination
 
-| Flag         | Mode        | Description                        |
-|--------------|-------------|------------------------------------|
-| `--init`     | INIT        | Configure project, then STOP       |
-| `--continue` | CONTINUE    | Resume from validated plan         |
-| `--auto`     | AUTO        | Complete workflow automatically    |
-| (default)    | INTERACTIVE | User validates plan, controls flow |
+| Flag              | Mode        | Description                            |
+|-------------------|-------------|----------------------------------------|
+| `--init`          | INIT        | Configure project, then STOP           |
+| `--continue`      | CONTINUE    | Resume from validated plan             |
+| `--auto`          | AUTO        | Complete workflow automatically        |
+| `--auto --plan-only` | PLAN-ONLY | Stop after plan, suggest solo-implement |
+| (default)         | INTERACTIVE | User validates plan, controls flow     |
 
 ---
 
@@ -89,7 +91,22 @@ Execute in order:
 5. STEP: EXPLORATION
 6. STEP: CREATE PLAN
 7. STEP: PLAN VALIDATION (auto-validate)
-8. STEP: IMPLEMENT
+
+**If `--plan-only`**: STOP here and display:
+```markdown
+## Plan créé pour {ticket-id}
+
+Le plan est prêt. Pour une epic avec plusieurs phases complexes,
+lancez l'implémentation via le script externe :
+
+  solo-implement.sh --feature {ticket-id}
+
+Ce script exécute chaque phase dans une session Claude séparée,
+évitant les problèmes de contexte sur les gros tickets.
+```
+**END OF PLAN-ONLY MODE**
+
+8. STEP: IMPLEMENT (execute /compact first, then implement in this session)
 9. STEP: SIMPLIFY (unless `--skip-simplify`)
 10. STEP: REVIEW (unless `--skip-review`)
 11. STEP: FINALIZE (push + PR)
@@ -240,13 +257,20 @@ Update status: `state = "plan_validated"`, `plan_validated_at = "{timestamp}"`
 
 ## STEP: IMPLEMENT
 
-Execute implementation via solo-implement.sh:
+1. **Execute /compact** to clear context before implementation
 
-```bash
-~/.claude/scripts/solo-implement.sh --feature {ticket-id}
-```
+2. **Read the plan** from `.claude/feature/{ticket-id}/plan.md`
 
-Update status: `phases.implement = "completed"`, `state = "implementing"`
+3. **Implement each phase** sequentially:
+   - Read phase details (goal, files, validation)
+   - Implement the changes
+   - Run validation command if specified
+   - Commit with the suggested commit message
+   - Move to next phase
+
+4. Update status: `phases.implement = "completed"`, `state = "implementing"`
+
+**Note**: For very large epics with many phases, use `--plan-only` flag and run `solo-implement.sh` separately. This launches each phase in its own Claude session with fresh context.
 
 ---
 
@@ -340,7 +364,15 @@ Update status: `phases.finalize = "completed"`, `state = "finalized"`
 ```
 /resolve PROJ-123 --auto
   → Workspace → Fetch → Analyze → Explore → Plan (auto-validated)
-  → implement → simplify → review → push → PR
+  → /compact → implement → simplify → review → push → PR
+```
+
+### Epic Flow (--plan-only)
+
+```
+/resolve PROJ-123 --auto --plan-only
+  → Workspace → Fetch → Analyze → Explore → Plan (auto-validated)
+  → STOP + suggest: solo-implement.sh --feature PROJ-123
 ```
 
 ---

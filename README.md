@@ -74,28 +74,31 @@ Modular system for automated ticket resolution, integrating YouTrack (MCP) and G
 
 ### Full Automation (100% Autonomous)
 
-To run a completely autonomous workflow from workspace creation to PR:
-
 ```bash
-# Option 1: With branch (most common)
+# Standard ticket - complete workflow in one session
 /resolve PROJ-123 --auto
 
-# Option 2: With worktree (isolated directory)
+# Epic / large ticket - stop after plan, use solo-implement separately
+/resolve PROJ-123 --auto --plan-only
+# Then: solo-implement.sh --feature PROJ-123
+
+# With worktree (isolated directory)
 ~/.claude/scripts/resolve-worktree.sh PROJ-123
 ```
 
-Both options will:
-1. Create workspace (branch or worktree)
-2. Fetch ticket
-3. Analyze complexity
-4. Explore codebase (if needed)
-5. Generate and auto-validate plan
-6. Implement all phases
-7. Simplify code
-8. Review code
-9. Push branch and create PR (draft)
+**Standard `--auto`** workflow:
+1. Create workspace (branch)
+2. Fetch ticket → Analyze → Explore → Plan
+3. `/compact` (clear context)
+4. Implement all phases
+5. Simplify → Review → Push → PR
 
-**When to use worktree?** When you want each ticket in its own isolated directory (useful for parallel work or keeping main repo clean).
+**Epic `--auto --plan-only`** workflow:
+1. Create workspace (branch)
+2. Fetch ticket → Analyze → Explore → Plan
+3. STOP and suggest `solo-implement.sh`
+
+**When to use `--plan-only`?** For large epics with many phases. `solo-implement.sh` runs each phase in a separate Claude session, avoiding context overflow.
 
 ### /resolve Options
 
@@ -108,6 +111,9 @@ Both options will:
 
 # Automatic mode - no questions, implements + creates PR
 /resolve PROJ-123 --auto
+
+# Epic mode - stop after plan, suggest solo-implement.sh
+/resolve PROJ-123 --auto --plan-only
 
 # Resume after plan validation (interactive mode)
 /resolve PROJ-123 --continue
