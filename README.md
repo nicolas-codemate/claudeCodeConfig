@@ -758,7 +758,13 @@ Pour finaliser:
 ```
 
 ```bash
-# 3. AUTOMATED IMPLEMENTATION (outside Claude)
+# 3. EPIC WORKFLOW (for large tickets with many phases)
+
+# Step 1: Create the plan (stops after planning)
+$ claude -p "/resolve myapp-123 --auto --plan-only"
+# → Creates .claude/feature/myapp-123/plan.md
+
+# Step 2: Run implementation outside Claude (separate session per phase)
 $ solo-implement.sh --feature myapp-123
 
 ╔═══════════════════════════════════════════════════════════╗
