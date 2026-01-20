@@ -31,9 +31,38 @@ Extract from arguments:
 - `fix_mode`: Boolean, whether to apply fixes
 - `severity_threshold`: critical|important|minor
 
-### Step 2: Determine Context
+### Step 2: Auto-Detect Feature Context (if no --ticket)
 
-**If `--ticket` provided**:
+**Si aucun argument fourni, detecter automatiquement** :
+
+```bash
+# Get current branch name
+current_branch=$(git branch --show-current)
+echo "Current branch: $current_branch"
+```
+
+**Extraire le ticket ID du nom de branche** :
+- Pattern: `feat/{TICKET-ID}-*` ou `feature/{TICKET-ID}-*` ou `fix/{TICKET-ID}-*`
+- Exemples: `feat/YT-4305-add-metrics` → `YT-4305`
+- Regex: `^(feat|feature|fix|bugfix)/([A-Z]+-[0-9]+)`
+
+```bash
+# Extract ticket ID from branch name
+ticket_id=$(echo "$current_branch" | sed -n 's|^[^/]*/\([A-Z]*-[0-9]*\).*|\1|p')
+echo "Detected ticket: $ticket_id"
+```
+
+**Si ticket detecte, charger le contexte** :
+```bash
+# Check if feature context exists
+if [[ -d ".claude/feature/$ticket_id" ]]; then
+    echo "Feature context found: .claude/feature/$ticket_id"
+fi
+```
+
+### Step 3: Determine Context
+
+**If `--ticket` provided OR auto-detected**:
 ```bash
 # Check for ticket context
 ls -la .claude/feature/{ticket-id}/
@@ -42,11 +71,11 @@ ls -la .claude/feature/{ticket-id}/
 - Load `.claude/feature/{ticket}/plan.md` (implementation plan)
 - Load `.claude/feature/{ticket}/status.json` (get base branch from workspace.base)
 
-**If no ticket**:
+**If no ticket (and auto-detection failed)**:
 - Use current changes without ticket context
 - Review will focus on code quality only (no functional validation)
 
-### Step 3: Determine Base Branch
+### Step 4: Determine Base Branch
 
 Priority:
 1. `--base` argument if provided
@@ -54,7 +83,7 @@ Priority:
 3. Config `branches.default_base`
 4. Fallback to "main"
 
-### Step 4: Get Changes
+### Step 5: Get Changes
 
 ```bash
 # Files changed in this branch
@@ -67,11 +96,11 @@ git diff {base-branch}...HEAD
 git diff {base-branch}...HEAD --stat
 ```
 
-### Step 5: Load Review Agent
+### Step 6: Load Review Agent
 
 Read and apply agent from `~/.claude/agents/code-reviewer.md`.
 
-### Step 6: Execute Review
+### Step 7: Execute Review
 
 **With ticket context**:
 1. Functional completeness check (all ticket requirements met?)
@@ -84,7 +113,7 @@ Read and apply agent from `~/.claude/agents/code-reviewer.md`.
 2. Maintainability assessment
 3. Codebase consistency check
 
-### Step 7: Present Results
+### Step 8: Present Results
 
 Display review summary:
 
@@ -102,7 +131,7 @@ Display review summary:
 [Filtered by --severity threshold]
 ```
 
-### Step 8: Handle Fixes (if --fix)
+### Step 9: Handle Fixes (if --fix)
 
 For each important+ issue:
 
@@ -128,7 +157,7 @@ After all fixes applied:
 git diff --stat  # Show what changed
 ```
 
-### Step 9: Save Report (if ticket context)
+### Step 10: Save Report (if ticket context)
 
 Write report to `.claude/feature/{ticket-id}/review.md`.
 
@@ -159,13 +188,20 @@ Report saved to: .claude/feature/{ticket-id}/review.md
 
 ## Examples
 
+### Review with auto-detection (recommended)
+```bash
+/review-code
+```
+Auto-detects ticket from branch name (e.g., `feat/YT-4305-xxx` → `YT-4305`).
+Loads context from `.claude/feature/{ticket}/` and determines base branch automatically.
+
 ### Review without ticket context
 ```bash
 /review-code --base main
 ```
-Reviews all changes on current branch vs main.
+Reviews all changes on current branch vs main (no functional validation).
 
-### Review with ticket context
+### Review with explicit ticket
 ```bash
 /review-code --ticket PROJ-123
 ```

@@ -288,6 +288,43 @@ Append findings to `analysis.md`.
 2. **Generate Plan**
    Create implementation plan with phased steps, validation criteria, risk mitigations.
 
+   **Plan format** - The plan MUST include a YAML frontmatter block:
+   ```markdown
+   ---
+   feature: {ticket-id-slug}
+   ticket_id: {ticket-id}
+   created: {ISO timestamp}
+   status: pending
+   total_phases: {N}
+   ---
+
+   # {ticket-id}: Implementation Plan - {title}
+
+   ## Overview
+   {Brief description}
+
+   ---
+
+   ## Phase 1: {Phase Title}
+
+   **Goal**: {What this phase accomplishes}
+
+   ### Files to modify/create
+   - `path/to/file.ext` - Description
+
+   ### Validation
+   {Command to validate: make test, phpunit, etc.}
+
+   ### Commit message
+   ```
+   {conventional commit message}
+   ```
+
+   ---
+
+   ## Phase 2: ...
+   ```
+
 3. **Save Plan**
    Write to `.claude/feature/{ticket-id}/plan.md`
    Update status: `phases.plan = "completed"`, `state = "planned"`

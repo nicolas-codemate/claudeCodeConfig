@@ -72,6 +72,9 @@ MAX_RETRIES=2
 RETRY_DELAY=5
 THINKING_BUDGET=""
 
+# Claude CLI options - use stream-json for real-time output
+CLAUDE_STREAMING=true  # Enable real-time streaming output
+
 # Runtime state
 LAST_OUTPUT=""
 
@@ -128,10 +131,84 @@ log_verbose() {
 }
 
 #-------------------------------------------------------------------------------
+# Claude execution with streaming
+#-------------------------------------------------------------------------------
+
+# Run Claude with real-time streaming output
+# Usage: run_claude_streaming "prompt" "output_file" [extra_args...]
+run_claude_streaming() {
+    local prompt=$1
+    local output_file=$2
+    shift 2
+    local extra_args=("$@")
+
+    # Create a temp file to capture exit code (pipes lose it in subshells)
+    local exit_code_file
+    exit_code_file=$(mktemp)
+
+    if [[ "$CLAUDE_STREAMING" == true ]]; then
+        local last_text=""
+
+        # Stream JSON and parse text in real-time
+        # Use process substitution to preserve exit code
+        {
+            echo "$prompt" | claude --dangerously-skip-permissions \
+                --output-format stream-json \
+                --include-partial-messages \
+                --verbose \
+                "${extra_args[@]}" 2>&1
+            echo $? > "$exit_code_file"
+        } | while IFS= read -r line; do
+            # Save raw JSON to output file
+            echo "$line" >> "$output_file"
+
+            # Extract and display text content incrementally
+            if echo "$line" | jq -e '.message.content[0].text' >/dev/null 2>&1; then
+                local current_text
+                current_text=$(echo "$line" | jq -r '.message.content[0].text // empty' 2>/dev/null)
+                if [[ -n "$current_text" && "$current_text" != "$last_text" ]]; then
+                    # Print only the new part
+                    local new_part="${current_text#$last_text}"
+                    echo -n "$new_part"
+                    last_text="$current_text"
+                fi
+            fi
+        done
+        echo ""  # Final newline
+    else
+        # Non-streaming fallback
+        echo "$prompt" | claude --dangerously-skip-permissions \
+            --output-format text \
+            "${extra_args[@]}" 2>&1 | tee "$output_file"
+        echo $? > "$exit_code_file"
+    fi
+
+    local exit_code
+    exit_code=$(cat "$exit_code_file" 2>/dev/null || echo "1")
+    rm -f "$exit_code_file"
+
+    # Check for various error indicators
+    if grep -q '"is_error":true' "$output_file" 2>/dev/null; then
+        return 1
+    fi
+    if grep -q 'No messages returned' "$output_file" 2>/dev/null; then
+        return 1
+    fi
+    if grep -q 'Error:' "$output_file" 2>/dev/null; then
+        # Check if it's a real error, not just text containing "Error:"
+        if grep -qE '^Error:|UnhandledPromiseRejection|ECONNREFUSED' "$output_file" 2>/dev/null; then
+            return 1
+        fi
+    fi
+
+    return "$exit_code"
+}
+
+#-------------------------------------------------------------------------------
 # Metrics functions
 #-------------------------------------------------------------------------------
 
-# Display metrics from ccusage session JSON
+# Display metrics from stream-json output
 show_phase_metrics() {
     local phase_num=$1
     local json_file=$2
@@ -143,85 +220,61 @@ show_phase_metrics() {
         return
     fi
 
-    # Extract metrics from ccusage session JSON format
-    local cost input_tokens output_tokens cache_read cache_creation context_size
-    cost=$(jq -r '.totalCost // 0' "$json_file" 2>/dev/null)
-    input_tokens=$(jq -r '[.entries[].inputTokens] | add // 0' "$json_file" 2>/dev/null)
-    output_tokens=$(jq -r '[.entries[].outputTokens] | add // 0' "$json_file" 2>/dev/null)
-    cache_read=$(jq -r '[.entries[].cacheReadTokens] | add // 0' "$json_file" 2>/dev/null)
-    cache_creation=$(jq -r '[.entries[].cacheCreationTokens] | add // 0' "$json_file" 2>/dev/null)
+    # Extract metrics from stream-json result line
+    local result_line
+    result_line=$(grep '"type":"result"' "$json_file" 2>/dev/null | tail -1)
 
-    # Default context window size (Opus 4.5 = 200K)
-    context_size=200000
+    if [[ -z "$result_line" ]]; then
+        log_verbose "No result line found in metrics file"
+        return
+    fi
 
-    # Calculate context usage (input + cache tokens count toward context)
-    local context_tokens=$((input_tokens + cache_read + cache_creation))
-    local context_pct=$(awk "BEGIN {printf \"%.1f\", ($context_tokens / $context_size) * 100}")
-    local context_remaining=$((context_size - context_tokens))
-    local cost_formatted=$(printf "%.4f" "$cost")
+    local cost input_tokens output_tokens cache_read cache_creation
+    cost=$(echo "$result_line" | jq -r '.total_cost_usd // 0' 2>/dev/null)
+    input_tokens=$(echo "$result_line" | jq -r '.usage.input_tokens // 0' 2>/dev/null)
+    output_tokens=$(echo "$result_line" | jq -r '.usage.output_tokens // 0' 2>/dev/null)
+    cache_read=$(echo "$result_line" | jq -r '.usage.cache_read_input_tokens // 0' 2>/dev/null)
+    cache_creation=$(echo "$result_line" | jq -r '.usage.cache_creation_input_tokens // 0' 2>/dev/null)
+
+    # Total context = input + cache (for display purposes)
+    local total_input=$((input_tokens + cache_read + cache_creation))
+
+    # Format cost: 2 decimals with comma separator (French format)
+    local cost_formatted
+    cost_formatted=$(LC_ALL=C printf "%.2f" "$cost" | sed 's/\./,/')
 
     # Format tokens with K suffix if large
     format_tokens() {
         local tokens=$1
         if [[ $tokens -gt 1000000 ]]; then
-            awk "BEGIN {printf \"%.1fM\", $tokens / 1000000}"
+            LC_ALL=C awk "BEGIN {printf \"%.1fM\", $tokens / 1000000}"
         elif [[ $tokens -gt 1000 ]]; then
-            awk "BEGIN {printf \"%.1fK\", $tokens / 1000}"
+            LC_ALL=C awk "BEGIN {printf \"%.1fK\", $tokens / 1000}"
         else
             echo "$tokens"
         fi
     }
 
-    local input_display=$(format_tokens $input_tokens)
+    local input_display=$(format_tokens $total_input)
     local output_display=$(format_tokens $output_tokens)
-    local cache_read_display=$(format_tokens $cache_read)
-    local cache_creation_display=$(format_tokens $cache_creation)
-    local context_remaining_display=$(format_tokens $context_remaining)
-
-    # Color for context percentage
-    local ctx_color
-    if (( $(echo "$context_pct < 50" | bc -l) )); then
-        ctx_color="$GREEN"
-    elif (( $(echo "$context_pct < 80" | bc -l) )); then
-        ctx_color="$YELLOW"
-    else
-        ctx_color="$RED"
-    fi
-
-    # Progress bar (20 chars)
-    local bar_width=20
-    local filled=$(awk "BEGIN {printf \"%.0f\", ($context_pct / 100) * $bar_width}")
-    local bar=""
-    for ((i=0; i<bar_width; i++)); do
-        if (( i < filled )); then
-            bar+="█"
-        else
-            bar+="░"
-        fi
-    done
 
     # Accumulate metrics for final summary
-    TOTAL_COST=$(echo "$TOTAL_COST + $cost" | bc -l)
-    TOTAL_INPUT_TOKENS=$((TOTAL_INPUT_TOKENS + input_tokens))
+    TOTAL_COST=$(echo "$TOTAL_COST + $cost" | LC_ALL=C bc -l)
+    TOTAL_INPUT_TOKENS=$((TOTAL_INPUT_TOKENS + total_input))
     TOTAL_OUTPUT_TOKENS=$((TOTAL_OUTPUT_TOKENS + output_tokens))
     TOTAL_LINES_ADDED=$((TOTAL_LINES_ADDED + lines_added))
     TOTAL_LINES_DELETED=$((TOTAL_LINES_DELETED + lines_deleted))
     PHASES_COMPLETED=$((PHASES_COMPLETED + 1))
 
     echo ""
-    echo -e "${MAGENTA}┌─────────────────────────────────────────────────────────┐${NC}"
-    echo -e "${MAGENTA}│${NC} ${BOLD}Phase $phase_num Metrics${NC}                                      ${MAGENTA}│${NC}"
-    echo -e "${MAGENTA}├─────────────────────────────────────────────────────────┤${NC}"
-    echo -e "${MAGENTA}│${NC}  💰 Cost:   ${GREEN}\$${cost_formatted}${NC}                              ${MAGENTA}│${NC}"
-    echo -e "${MAGENTA}│${NC}  📝 Lines:  ${GREEN}+${lines_added}${NC}, ${RED}-${lines_deleted}${NC}                              ${MAGENTA}│${NC}"
-    echo -e "${MAGENTA}│${NC}  📥 Input:  ${CYAN}${input_display}${NC} tokens                          ${MAGENTA}│${NC}"
-    echo -e "${MAGENTA}│${NC}  📤 Output: ${CYAN}${output_display}${NC} tokens                         ${MAGENTA}│${NC}"
-    echo -e "${MAGENTA}│${NC}  📚 Cache:  ${CYAN}${cache_read_display}${NC} read / ${CYAN}${cache_creation_display}${NC} created      ${MAGENTA}│${NC}"
-    echo -e "${MAGENTA}├─────────────────────────────────────────────────────────┤${NC}"
-    echo -e "${MAGENTA}│${NC}  📊 Context: ${ctx_color}[$bar]${NC} ${context_pct}%               ${MAGENTA}│${NC}"
-    echo -e "${MAGENTA}│${NC}  📏 Remaining: ${GREEN}${context_remaining_display}${NC} / $(format_tokens $context_size) tokens    ${MAGENTA}│${NC}"
-    echo -e "${MAGENTA}└─────────────────────────────────────────────────────────┘${NC}"
+    echo -e "${MAGENTA}┌─── ${BOLD}Phase $phase_num Metrics${NC} ${MAGENTA}───────────────────────────────────────${NC}"
+    echo -e "${MAGENTA}│${NC}  Cost:   ${GREEN}\$${cost_formatted}${NC}"
+    echo -e "${MAGENTA}│${NC}  Lines:  ${GREEN}+${lines_added}${NC}, ${RED}-${lines_deleted}${NC}"
+    echo -e "${MAGENTA}│${NC}  Input:  ${CYAN}${input_display}${NC} tokens"
+    echo -e "${MAGENTA}│${NC}  Output: ${CYAN}${output_display}${NC} tokens"
+    echo -e "${MAGENTA}└────────────────────────────────────────────────────────${NC}"
 }
+
 
 # Display total metrics summary
 show_total_metrics() {
@@ -229,16 +282,17 @@ show_total_metrics() {
         return
     fi
 
+    # Format cost: 2 decimals with comma separator (French format)
     local cost_formatted
-    cost_formatted=$(printf "%.4f" "$TOTAL_COST")
+    cost_formatted=$(LC_ALL=C printf "%.2f" "$TOTAL_COST" | sed 's/\./,/')
 
     # Format tokens
     format_tokens() {
         local tokens=$1
         if [[ $tokens -gt 1000000 ]]; then
-            awk "BEGIN {printf \"%.1fM\", $tokens / 1000000}"
+            LC_ALL=C awk "BEGIN {printf \"%.1fM\", $tokens / 1000000}"
         elif [[ $tokens -gt 1000 ]]; then
-            awk "BEGIN {printf \"%.1fK\", $tokens / 1000}"
+            LC_ALL=C awk "BEGIN {printf \"%.1fK\", $tokens / 1000}"
         else
             echo "$tokens"
         fi
@@ -248,14 +302,12 @@ show_total_metrics() {
     local output_display=$(format_tokens $TOTAL_OUTPUT_TOKENS)
 
     echo ""
-    echo -e "${CYAN}╔═════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC} ${BOLD}TOTAL SUMMARY ($PHASES_COMPLETED phases)${NC}                           ${CYAN}║${NC}"
-    echo -e "${CYAN}╠═════════════════════════════════════════════════════════╣${NC}"
-    echo -e "${CYAN}║${NC}  💰 Total Cost:   ${GREEN}\$${cost_formatted}${NC}                          ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}  📝 Total Lines:  ${GREEN}+${TOTAL_LINES_ADDED}${NC}, ${RED}-${TOTAL_LINES_DELETED}${NC}                          ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}  📥 Total Input:  ${CYAN}${input_display}${NC} tokens                      ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}  📤 Total Output: ${CYAN}${output_display}${NC} tokens                     ${CYAN}║${NC}"
-    echo -e "${CYAN}╚═════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}╔═══ ${BOLD}TOTAL SUMMARY${NC} ${CYAN}($PHASES_COMPLETED phases) ═══════════════════════════════${NC}"
+    echo -e "${CYAN}║${NC}  Cost:   ${GREEN}\$${cost_formatted}${NC}"
+    echo -e "${CYAN}║${NC}  Lines:  ${GREEN}+${TOTAL_LINES_ADDED}${NC}, ${RED}-${TOTAL_LINES_DELETED}${NC}"
+    echo -e "${CYAN}║${NC}  Input:  ${CYAN}${input_display}${NC} tokens"
+    echo -e "${CYAN}║${NC}  Output: ${CYAN}${output_display}${NC} tokens"
+    echo -e "${CYAN}╚════════════════════════════════════════════════════════${NC}"
 }
 
 #-------------------------------------------------------------------------------
@@ -360,24 +412,41 @@ ensure_feature_branch() {
     fi
 }
 
-# Extract frontmatter value
+# Extract frontmatter value (returns empty string if not found)
 get_frontmatter() {
     local file=$1
     local key=$2
-    sed -n '/^---$/,/^---$/p' "$file" | grep "^${key}:" | sed "s/^${key}: *//" | tr -d '"'
+    local result
+    # Use || true to prevent pipefail from causing exit
+    result=$(sed -n '/^---$/,/^---$/p' "$file" 2>/dev/null | grep "^${key}:" 2>/dev/null | sed "s/^${key}: *//" | tr -d '"' || true)
+    echo "$result"
 }
 
-# Update frontmatter value
+# Update frontmatter value (creates frontmatter if not exists)
 update_frontmatter() {
     local file=$1
     local key=$2
     local value=$3
-    
-    if grep -q "^${key}:" "$file"; then
-        sed -i "s/^${key}:.*/${key}: ${value}/" "$file"
+
+    # Check if frontmatter exists
+    if head -1 "$file" | grep -q "^---$"; then
+        # Frontmatter exists
+        if grep -q "^${key}:" "$file"; then
+            sed -i "s/^${key}:.*/${key}: ${value}/" "$file"
+        else
+            # Add after first ---
+            sed -i "/^---$/a ${key}: ${value}" "$file"
+        fi
     else
-        # Add after first ---
-        sed -i "/^---$/a ${key}: ${value}" "$file"
+        # No frontmatter, create it at the top
+        local temp_file
+        temp_file=$(mktemp)
+        echo "---" > "$temp_file"
+        echo "${key}: ${value}" >> "$temp_file"
+        echo "---" >> "$temp_file"
+        echo "" >> "$temp_file"
+        cat "$file" >> "$temp_file"
+        mv "$temp_file" "$file"
     fi
 }
 
@@ -490,11 +559,19 @@ Execute validation now."
     validation_output=$(mktemp)
     TEMP_FILES+=("$validation_output")
 
-    claude -p "$validation_prompt" --dangerously-skip-permissions --output-format text 2>&1 | tee "$validation_output"
+    if ! run_claude_streaming "$validation_prompt" "$validation_output"; then
+        log_warn "Validation Claude call failed, skipping validation"
+        rm -f "$validation_output"
+        return 0  # Don't block on validation failures
+    fi
 
-    # Check result from last lines
+    # Extract text result from JSON output (last result line contains final text)
     local result
-    result=$(tail -10 "$validation_output")
+    result=$(grep '"type":"result"' "$validation_output" 2>/dev/null | tail -1 | jq -r '.result // empty' 2>/dev/null)
+    # Fallback: search in raw output if JSON parsing fails
+    if [[ -z "$result" ]]; then
+        result=$(tail -20 "$validation_output")
+    fi
 
     if echo "$result" | grep -q "VALIDATION_FAILED"; then
         local error_detail
@@ -517,105 +594,23 @@ Execute validation now."
     fi
 }
 
-# Cache for commit command (discovered once per run)
-COMMIT_CMD_CACHE=""
-
-# Discover commit command using Claude
-discover_commit_command() {
-    local project_commands=""
-    local user_commands=""
-    
-    # List project commands
-    if [[ -d ".claude/commands" ]]; then
-        project_commands=$(ls -1 .claude/commands/*.md 2>/dev/null | xargs -I {} basename {} .md | tr '\n' ', ' || true)
-    fi
-    
-    # List user commands
-    if [[ -d "$HOME/.claude/commands" ]]; then
-        user_commands=$(ls -1 "$HOME/.claude/commands"/*.md 2>/dev/null | xargs -I {} basename {} .md | tr '\n' ', ' || true)
-    fi
-    
-    if [[ -z "$project_commands" && -z "$user_commands" ]]; then
-        echo "git"
-        return
-    fi
-    
-    log_verbose "Project commands: $project_commands"
-    log_verbose "User commands: $user_commands"
-    
-    # Ask Claude to find the commit command
-    local prompt="Find the commit command from these available slash commands.
-
-Project commands (use as /project:name): $project_commands
-User commands (use as /name): $user_commands
-
-Rules:
-1. Look for commands related to 'commit', 'git commit', or similar
-2. Project commands take priority over user commands
-3. Return ONLY the command name in format '/project:name' or '/name'
-4. If no commit command found, return exactly: git
-5. Return ONLY the command, nothing else - no explanation
-
-Examples of valid responses:
-/project:commit-yt
-/project:commit
-/commit
-git"
-
-    local result
-    result=$(claude -p "$prompt" --output-format text 2>/dev/null | tail -1 | tr -d '\n\r ')
-    
-    # Validate result format
-    if [[ "$result" =~ ^/project:[a-zA-Z0-9_-]+$ ]] || [[ "$result" =~ ^/[a-zA-Z0-9_-]+$ ]] || [[ "$result" == "git" ]]; then
-        echo "$result"
-    else
-        log_verbose "Invalid commit command result: $result, falling back to git"
-        echo "git"
-    fi
-}
-
-# Get commit command (with caching)
-get_commit_command() {
-    if [[ -n "$COMMIT_CMD_CACHE" ]]; then
-        echo "$COMMIT_CMD_CACHE"
-        return
-    fi
-    
-    log_info "Discovering commit command..."
-    COMMIT_CMD_CACHE=$(discover_commit_command)
-    log_info "Using commit command: $COMMIT_CMD_CACHE"
-    
-    echo "$COMMIT_CMD_CACHE"
-}
-
-# Execute git commit
+# Execute git commit (direct git, no custom commands for speed and reliability)
 do_commit() {
     local message=$1
-    local commit_cmd
-    commit_cmd=$(get_commit_command)
-    
+
     if [[ "$NO_COMMIT" == true ]]; then
         log_info "Skipping commit (--no-commit flag)"
         return 0
     fi
-    
+
     log_info "Committing changes..."
-    
-    if [[ "$commit_cmd" == "git" ]]; then
-        git add -A
-        git commit -m "$message" || {
-            log_warn "Nothing to commit or commit failed"
-            return 0
-        }
-    else
-        # Use Claude to commit with the custom command
-        claude -p "Run $commit_cmd with message: $message" --dangerously-skip-permissions --output-format text 2>/dev/null || {
-            log_warn "Commit via Claude failed, falling back to git"
-            git add -A
-            git commit -m "$message" || true
-        }
-    fi
-    
+
+    git add -A
+    git commit -n -m "$message" || {
+        log_warn "Nothing to commit or commit failed"
+        return 0
+    }
+
     log_success "Committed: $message"
 }
 
@@ -707,10 +702,6 @@ Begin implementation of Phase $phase_num now."
         echo ""
 
         local exit_code=0
-        local json_output
-        json_output=$(mktemp)
-        TEMP_FILES+=("$json_output")
-
         local output_file
         output_file=$(mktemp)
         TEMP_FILES+=("$output_file")
@@ -719,9 +710,15 @@ Begin implementation of Phase $phase_num now."
         local session_id
         session_id=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "phase-$phase_num-attempt-$retry_count-$(date +%s)")
 
-        # Run Claude with streaming output and capture to file
-        claude -p "$prompt" --dangerously-skip-permissions --session-id "$session_id" $thinking_opt 2>&1 | tee "$output_file"
-        exit_code=${PIPESTATUS[0]}
+        # Build extra args
+        local -a claude_args=("--session-id" "$session_id")
+        if [[ -n "$THINKING_BUDGET" ]]; then
+            claude_args+=("--thinking-budget" "$THINKING_BUDGET")
+        fi
+
+        # Run Claude with streaming output
+        run_claude_streaming "$prompt" "$output_file" "${claude_args[@]}"
+        exit_code=$?
         LAST_OUTPUT="$output_file"
 
         echo ""
@@ -754,7 +751,7 @@ $phase_content"
             else
                 log_error "Phase $phase_num failed after $MAX_RETRIES retries"
                 mark_phase_failed "$plan_file" "$phase_num" "Failed after $MAX_RETRIES retries"
-                rm -f "$json_output" "$output_file"
+                rm -f "$output_file"
                 return 1
             fi
         else
@@ -785,37 +782,40 @@ $phase_content"
                 else
                     log_error "Phase $phase_num failed validation after $MAX_RETRIES retries"
                     mark_phase_failed "$plan_file" "$phase_num" "Validation failed after $MAX_RETRIES retries"
-                    rm -f "$json_output" "$output_file"
+                    rm -f "$output_file"
                     return 1
                 fi
             else
                 # Both execution and validation succeeded
                 phase_success=true
 
-                # Get metrics from ccusage for this session
-                if command -v ccusage &> /dev/null; then
-                    ccusage session --id "$session_id" --json 2>/dev/null > "$json_output" || true
-                fi
-
                 # Mark as completed
                 mark_phase_completed "$plan_file" "$phase_num"
                 log_success "Phase $phase_num completed successfully"
 
                 # Get git diff stats (lines added/deleted)
+                # Use HEAD to capture both staged and unstaged changes
                 local lines_added=0
                 local lines_deleted=0
                 local git_stats
-                git_stats=$(git diff --shortstat 2>/dev/null)
+                git_stats=$(git diff --shortstat HEAD 2>/dev/null)
+                # Fallback to diff without HEAD for new repos or if HEAD fails
+                if [[ -z "$git_stats" ]]; then
+                    git_stats=$(git diff --shortstat --cached 2>/dev/null)
+                fi
+                if [[ -z "$git_stats" ]]; then
+                    git_stats=$(git diff --shortstat 2>/dev/null)
+                fi
                 if [[ -n "$git_stats" ]]; then
                     lines_added=$(echo "$git_stats" | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
                     lines_deleted=$(echo "$git_stats" | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
                 fi
 
                 # Show metrics from JSON output
-                show_phase_metrics "$phase_num" "$json_output" "$lines_added" "$lines_deleted"
+                show_phase_metrics "$phase_num" "$output_file" "$lines_added" "$lines_deleted"
 
                 # Cleanup
-                rm -f "$json_output" "$output_file"
+                rm -f "$output_file"
 
                 # Commit
                 do_commit "$commit_msg"
@@ -834,27 +834,46 @@ $phase_content"
 
 run_implementation() {
     local plan_file=$1
-    
+
     # Validate plan file
     if [[ ! -f "$plan_file" ]]; then
         log_error "Plan file not found: $plan_file"
         exit 1
     fi
-    
+
     log_info "Using plan: $plan_file"
-    
-    # Get plan metadata
+
+    # Get plan metadata (with fallbacks for missing frontmatter)
     local feature
     feature=$(get_frontmatter "$plan_file" "feature")
+    if [[ -z "$feature" ]]; then
+        # Try to extract from path: .claude/feature/{ID}/plan.md
+        feature=$(echo "$plan_file" | sed -n 's|.*feature/\([^/]*\)/.*|\1|p' || true)
+        # Or from FEATURE_ID if provided
+        if [[ -z "$feature" && -n "$FEATURE_ID" ]]; then
+            feature="$FEATURE_ID"
+        fi
+        # Final fallback: extract from first H1 heading
+        if [[ -z "$feature" ]]; then
+            feature=$(grep -m1 "^# " "$plan_file" | sed 's/^# //' | cut -c1-50 || true)
+        fi
+        log_verbose "Feature extracted from context: $feature"
+    fi
+
     local status
     status=$(get_frontmatter "$plan_file" "status")
+    if [[ -z "$status" ]]; then
+        status="pending"
+        log_verbose "Status defaulting to: $status"
+    fi
+
     local total_phases
     total_phases=$(count_phases "$plan_file")
 
     # Ensure we're on a feature branch (not main/master)
     ensure_feature_branch "$feature"
 
-    log_info "Feature: $feature"
+    log_info "Feature: ${feature:-unknown}"
     log_info "Status: $status"
     log_info "Total phases: $total_phases"
     
@@ -1012,10 +1031,6 @@ main() {
         exit 1
     fi
 
-    if ! command -v ccusage &> /dev/null; then
-        log_warn "ccusage not found. Metrics will not be displayed."
-        log_info "Install with: npm install -g ccusage"
-    fi
 
     if ! git rev-parse --git-dir &> /dev/null; then
         log_error "Not in a git repository"

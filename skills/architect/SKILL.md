@@ -243,6 +243,67 @@ Phase 4: Add edge case handling
 
 **Fix**: One concern per phase = one clear commit message.
 
+## Plan File Format
+
+Plans MUST follow this format for compatibility with `solo-implement.sh`:
+
+```markdown
+---
+feature: {ticket-id-slug}
+ticket_id: {ticket-id}
+created: {ISO timestamp}
+status: pending
+total_phases: {N}
+---
+
+# {ticket-id}: Implementation Plan - {title}
+
+## Overview
+
+{Brief description of what will be implemented}
+
+---
+
+## Phase 1: {Phase Title}
+
+**Goal**: {What this phase accomplishes}
+
+### Files to modify/create
+
+- `path/to/file.ext` - Description of changes
+
+### Validation
+
+{Concrete command: make test, phpunit tests/Specific/, npm run lint, etc.}
+
+### Commit message
+
+```
+{conventional commit: feat|fix|refactor(scope): description}
+```
+
+---
+
+## Phase 2: {Phase Title}
+
+...
+
+---
+
+## Summary
+
+| Phase | Description | Files | Complexity |
+|-------|-------------|-------|------------|
+| 1 | ... | N | Low/Medium/High |
+| 2 | ... | N | Low/Medium/High |
+```
+
+**Important**:
+- Frontmatter is REQUIRED for `solo-implement.sh` automation
+- Phase headers MUST follow format: `## Phase N: Title`
+- Commit messages MUST be in code blocks
+- Validation MUST be concrete commands, not "should work"
+
 ## Output Format
 
 When using this skill during planning, structure architectural decisions as:
