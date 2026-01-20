@@ -45,12 +45,13 @@ Modular system for automated ticket resolution, integrating YouTrack (MCP) and G
     ├─► Fetch ticket → ticket.md
     ├─► Analyze complexity (SIMPLE/MEDIUM/COMPLEX)
     │   └─► If COMPLEX: Parallel AEP exploration
-    ├─► Setup workspace (branch)
+    ├─► Setup workspace (branch) [--auto only]
     ├─► Create plan → plan.md
-    ├─► Implementation via solo-implement.sh
+    ├─► /compact (clear context)
+    ├─► Implementation (phase by phase)
     ├─► Code simplification (auto-detected agent)
     ├─► Code review (dual perspective: tech + product)
-    └─► Push + Create PR (draft by default)
+    └─► Push + Create PR (draft by default) [--auto only]
 ```
 
 ### Available Commands
@@ -736,18 +737,24 @@ Suggested complexity: MEDIUM (score: 4)
 **Validation**: npm run test
 
 ? What do you want to do now?
-  ● Implementation + PR
+  ● Valider et implementer
 
-[solo-implement.sh runs...]
+[/compact - clearing context]
 
-✓ All phases completed
+[Implementation]
+✓ Phase 1/3 completed - Committed
+✓ Phase 2/3 completed - Committed
+✓ Phase 3/3 completed - Committed
 
-? Create pull request?
-  ● Yes, as draft (Recommended)
+[Simplify + Review]
+✓ Code simplified
+✓ Code reviewed - no issues
 
-✓ Branch pushed to origin
-✓ PR created: #456 (draft)
-  https://github.com/my-org/my-repo/pull/456
+## Implementation Complete
+
+Pour finaliser:
+  git push -u origin feat/myapp-123-add-csv-export
+  /create-pr
 ```
 
 ```bash
@@ -843,13 +850,17 @@ $ claude -p "/resolve MYAPP-456 --auto"
 ✓ Branch: fix/myapp-456-fix-typo-login-error
 ✓ Plan: 1 phase
 
-[solo-implement.sh runs automatically]
+[/compact - clearing context]
 
+[Implementation]
 ✓ Phase 1/1 completed
 ✓ Committed: fix(auth): correct typo in login error message
 
-[Finalization]
+[Simplify + Review]
+✓ Code simplified
+✓ Code reviewed - no issues
 
+[Finalization]
 ✓ Branch pushed to origin
 ✓ PR created: #789 (draft)
   https://github.com/my-org/my-repo/pull/789
