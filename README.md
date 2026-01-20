@@ -760,11 +760,16 @@ Pour finaliser:
 ```bash
 # 3. EPIC WORKFLOW (for large tickets with many phases)
 
-# Step 1: Create the plan (stops after planning)
+# Option A: With automatic branch creation
 $ claude -p "/resolve myapp-123 --auto --plan-only"
+# → Creates branch feat/myapp-123-xxx
 # → Creates .claude/feature/myapp-123/plan.md
+$ solo-implement.sh --feature myapp-123
 
-# Step 2: Run implementation outside Claude (separate session per phase)
+# Option B: With worktree (manual setup required)
+$ git worktree add ../worktrees/myapp-123 -b feat/myapp-123
+$ cd ../worktrees/myapp-123
+$ claude -p "/resolve myapp-123 --auto --plan-only --skip-workspace"
 $ solo-implement.sh --feature myapp-123
 
 ╔═══════════════════════════════════════════════════════════╗
