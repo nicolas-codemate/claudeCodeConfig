@@ -7,13 +7,6 @@
     "repo": "",
     "issue_prefix": "#"
   },
-  "workspace": {
-    "prefer_worktree": false,
-    "worktree_parent": "../worktrees",
-    "worktree_command": null,
-    "auto_stash": true,
-    "skip_in_interactive": true
-  },
   "branches": {
     "default_base": "main",
     "prefix_mapping": {

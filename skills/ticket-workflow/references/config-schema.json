@@ -42,37 +42,6 @@
         }
       }
     },
-    "workspace": {
-      "type": "object",
-      "description": "Workspace setup configuration",
-      "properties": {
-        "prefer_worktree": {
-          "type": "boolean",
-          "default": false,
-          "description": "Prefer git worktrees over branches (only if tooling detected)"
-        },
-        "worktree_parent": {
-          "type": "string",
-          "default": "../worktrees",
-          "description": "Parent directory for worktrees relative to repo root"
-        },
-        "worktree_command": {
-          "type": ["string", "null"],
-          "default": null,
-          "description": "Explicit command for worktree creation. Use {{ticket_id}} and {{branch_name}} as placeholders. Example: 'make worktree-new TICKET={{ticket_id}}'"
-        },
-        "auto_stash": {
-          "type": "boolean",
-          "default": true,
-          "description": "Automatically stash uncommitted changes before workspace setup"
-        },
-        "skip_in_interactive": {
-          "type": "boolean",
-          "default": true,
-          "description": "Skip automatic workspace setup in interactive mode (user manages branch/worktree themselves)"
-        }
-      }
-    },
     "branches": {
       "type": "object",
       "description": "Branch naming and management configuration",

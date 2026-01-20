@@ -120,13 +120,6 @@ Build config object based on answers:
   "github": {
     "repo": "owner/repo"
   },
-  "workspace": {
-    "prefer_worktree": false,
-    "worktree_parent": "../worktrees",
-    "worktree_command": null,
-    "auto_stash": true,
-    "skip_in_interactive": true
-  },
   "branches": {
     "default_base": "main|master|develop",
     "prefix_mapping": {

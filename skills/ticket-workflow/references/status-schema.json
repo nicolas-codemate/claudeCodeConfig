@@ -35,7 +35,6 @@
         "pending",
         "fetched",
         "analyzed",
-        "workspace_ready",
         "planned",
         "plan_validated",
         "implementing",
@@ -51,6 +50,10 @@
       "format": "date-time",
       "description": "ISO timestamp when plan was validated (for --continue resumption)"
     },
+    "refined": {
+      "type": "boolean",
+      "description": "Whether the plan was refined interactively via --refine-plan"
+    },
     "complexity": {
       "type": "string",
       "enum": ["simple", "medium", "complex"],
@@ -60,29 +63,6 @@
       "type": "integer",
       "minimum": 0,
       "description": "Calculated complexity score"
-    },
-    "workspace": {
-      "type": "object",
-      "description": "Workspace configuration",
-      "properties": {
-        "type": {
-          "type": "string",
-          "enum": ["branch", "worktree"],
-          "description": "Type of workspace created"
-        },
-        "name": {
-          "type": "string",
-          "description": "Branch or worktree name"
-        },
-        "base": {
-          "type": "string",
-          "description": "Base branch used"
-        },
-        "path": {
-          "type": "string",
-          "description": "Path for worktree (if applicable)"
-        }
-      }
     },
     "phases": {
       "type": "object",
@@ -99,11 +79,6 @@
           "default": "pending"
         },
         "explore": {
-          "type": "string",
-          "enum": ["pending", "in_progress", "completed", "skipped", "failed"],
-          "default": "pending"
-        },
-        "workspace": {
           "type": "string",
           "enum": ["pending", "in_progress", "completed", "skipped", "failed"],
           "default": "pending"

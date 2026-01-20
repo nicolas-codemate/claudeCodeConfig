@@ -238,8 +238,7 @@ resolve-worktree.sh #456 --draft
 │  1. Read config from .claude/ticket-config.json             │
 │                                                             │
 │  2. Create worktree:                                        │
-│     - Use configured worktree_command if set                │
-│     - Or use Makefile target if available                   │
+│     - Use Makefile worktree target if available             │
 │     - Or create manually: git worktree add                  │
 │                                                             │
 │  3. Copy essential files to worktree:                       │
@@ -248,41 +247,33 @@ resolve-worktree.sh #456 --draft
 │                                                             │
 │  4. Change to worktree directory                            │
 │                                                             │
-│  5. Launch: claude -p "/resolve PROJ-123 --auto --skip-workspace" │
+│  5. Launch: claude -p "/resolve PROJ-123 --auto"                   │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ### Configuration
 
-Configure worktree behavior in `.claude/ticket-config.json`:
+The script reads `branches.default_base` from `.claude/ticket-config.json` if available:
 
 ```json
 {
-  "workspace": {
-    "prefer_worktree": true,
-    "worktree_parent": "../worktrees",
-    "worktree_command": "make worktree-new TICKET={{ticket_id}}"
-  },
   "branches": {
     "default_base": "main"
   }
 }
 ```
 
-**Options**:
-- `worktree_parent`: Directory where worktrees are created (default: `../worktrees`)
-- `worktree_command`: Custom command for worktree creation
-  - Use `{{ticket_id}}` and `{{branch_name}}` as placeholders
-  - Example: `make worktree-new TICKET={{ticket_id}}`
+**Defaults**:
+- `worktree_parent`: `../worktrees` (relative to repo root)
+- `base_branch`: `main` (or from config)
 
 ### Worktree Creation Order
 
 The script tries these methods in order:
 
-1. **Configured command**: If `workspace.worktree_command` is set
-2. **Makefile target**: If `worktree` or `worktree-new` target exists
-3. **Manual fallback**: `git worktree add` with automatic branch creation
+1. **Makefile target**: If `worktree` or `worktree-new` target exists
+2. **Manual fallback**: `git worktree add` with automatic branch creation
 
 ### Example Output
 
@@ -314,18 +305,18 @@ Ticket: PROJ-123
 
 ═══════════════════════════════════════════════════════════
 
-Running: claude -p "/resolve PROJ-123 --auto --skip-workspace"
+Running: claude -p "/resolve PROJ-123 --auto"
 ```
 
 ### Comparison: /resolve --auto vs resolve-worktree.sh
 
 | Feature | `/resolve --auto` | `resolve-worktree.sh` |
 |---------|-------------------|----------------------|
-| Creates branch | Yes | No (uses worktree) |
+| Requires branch first | Yes (manual) | No (creates worktree) |
 | Creates worktree | No | Yes |
 | Changes directory | No | Yes |
 | Isolation | Same directory | Separate directory |
-| Best for | Quick fixes | Large features |
+| Best for | Quick fixes | Large features, parallel work |
 
 ---
 

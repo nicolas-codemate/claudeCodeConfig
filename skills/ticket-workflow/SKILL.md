@@ -1,6 +1,6 @@
 ---
 name: ticket-workflow
-description: Global skill for ticket resolution workflow with state machine and resume capability. Coordinates fetch-ticket, analyze-ticket, setup-workspace skills and integrates with AEP/Architect for planning.
+description: Global skill for ticket resolution workflow with state machine and resume capability. Coordinates fetch-ticket, analyze-ticket skills and integrates with AEP/Architect for planning.
 ---
 
 # Ticket Workflow Skill
@@ -10,28 +10,20 @@ This skill provides the state machine and coordination logic for the complete ti
 ## State Machine
 
 ```
-                    ┌─────────────────────────────────────────┐
-                    │                                         │
-                    ▼                                         │
-┌─────────┐    ┌─────────┐    ┌──────────┐    ┌───────────────┤
-│ pending │───►│ fetched │───►│ analyzed │───►│workspace_ready│
-└─────────┘    └─────────┘    └──────────┘    └───────────────┘
-                    │              │                   │
-                    ▼              ▼                   ▼
-               ┌─────────────────────────────────────────────┐
-               │                  failed                      │
-               └─────────────────────────────────────────────┘
+┌─────────┐    ┌─────────┐    ┌──────────┐    ┌─────────┐
+│ pending │───►│ fetched │───►│ analyzed │───►│ planned │
+└─────────┘    └─────────┘    └──────────┘    └─────────┘
+                    │              │               │
+                    ▼              ▼               ▼
+               ┌─────────────────────────────────────────┐
+               │                failed                    │
+               └─────────────────────────────────────────┘
                                    │
                                    │ (resume)
                                    ▼
-┌───────────────┐    ┌──────────────┐    ┌───────────┐
-│workspace_ready│───►│   planned    │───►│implementing│
-└───────────────┘    └──────────────┘    └───────────┘
-                            │                   │
-                            ▼                   ▼
-                     ┌───────────────────────────────┐
-                     │          completed            │
-                     └───────────────────────────────┘
+┌─────────────────┐    ┌───────────────┐    ┌───────────┐
+│ plan_validated  │───►│ implementing  │───►│ completed │
+└─────────────────┘    └───────────────┘    └───────────┘
 ```
 
 ## States
@@ -40,9 +32,9 @@ This skill provides the state machine and coordination logic for the complete ti
 |-------|-------------|-------------|
 | `pending` | Workflow just started | `fetched`, `failed` |
 | `fetched` | Ticket data retrieved | `analyzed`, `failed` |
-| `analyzed` | Complexity determined | `workspace_ready`, `failed` |
-| `workspace_ready` | Branch/worktree created | `planned`, `failed` |
-| `planned` | Implementation plan ready | `implementing`, `completed` |
+| `analyzed` | Complexity determined | `planned`, `failed` |
+| `planned` | Implementation plan ready | `plan_validated`, `failed` |
+| `plan_validated` | Plan approved by user | `implementing`, `failed` |
 | `implementing` | Auto-implementation in progress | `completed`, `failed` |
 | `completed` | All phases finished | (terminal) |
 | `failed` | Error occurred | (can resume) |
@@ -54,9 +46,9 @@ This skill provides the state machine and coordination logic for the complete ti
 | pending → fetched | fetch | fetch-ticket |
 | fetched → analyzed | analyze | analyze-ticket |
 | analyzed → analyzed | explore | (AEP agents) |
-| analyzed → workspace_ready | workspace | setup-workspace |
-| workspace_ready → planned | plan | (Architect) |
-| planned → implementing | implement | solo-implement.sh |
+| analyzed → planned | plan | (Architect) |
+| planned → plan_validated | validation | plan-validation |
+| plan_validated → implementing | implement | solo-implement.sh |
 
 ## Status File Management
 
@@ -77,7 +69,6 @@ This skill provides the state machine and coordination logic for the complete ti
     "fetch": "pending",
     "analyze": "pending",
     "explore": "pending",
-    "workspace": "pending",
     "plan": "pending",
     "implement": "pending"
   },
@@ -131,7 +122,7 @@ fi
 ```python
 def get_resume_point(status):
     # Find last completed phase
-    phase_order = ['fetch', 'analyze', 'explore', 'workspace', 'plan', 'implement']
+    phase_order = ['fetch', 'analyze', 'explore', 'plan', 'implement']
 
     for phase in phase_order:
         if status['phases'][phase] in ['pending', 'failed']:
@@ -155,13 +146,12 @@ def get_resume_point(status):
 | Fetch | completed |
 | Analyze | completed |
 | Explore | skipped |
-| Workspace | failed |
 | Plan | pending |
 | Implement | pending |
 
 ## Point de Reprise
 
-Reprise depuis: **workspace**
+Reprise depuis: **plan**
 Erreur precedente: {error.message}
 
 Continuer ? [O/n]
@@ -189,11 +179,6 @@ Continuer ? [O/n]
 4. If COMPLEX: launch 3 explore agents in parallel
 5. Append findings to analysis.md
 6. Update status: `phases.explore = "completed"`
-
-### Phase: Workspace
-1. Invoke setup-workspace skill
-2. Create branch or worktree
-3. Update status: `state = "workspace_ready"`, `phases.workspace = "completed"`, `workspace = {...}`
 
 ### Phase: Plan
 1. If COMPLEX and not --skip-architect: invoke Architect skill

@@ -1,9 +1,8 @@
 #!/bin/bash
-# resolve-worktree.sh - Wrapper for /resolve with worktree support
+# resolve-worktree.sh - Helper for /resolve with worktree support
 #
-# This script handles the worktree creation for /resolve --auto mode.
-# It creates the worktree, changes to the new directory, and relaunches
-# claude with --auto --skip-workspace to continue the workflow.
+# This script creates a worktree and launches /resolve --auto in it.
+# Use this when you want to work on a ticket in an isolated worktree.
 #
 # Usage:
 #   resolve-worktree.sh <ticket-id> [options]
@@ -18,7 +17,7 @@
 # 2. Create worktree using configured command or fallback
 # 3. Copy essential files (.env, etc.)
 # 4. Change to worktree directory
-# 5. Launch claude with /resolve --auto --skip-workspace
+# 5. Launch claude with /resolve --auto
 
 set -e
 
@@ -60,7 +59,7 @@ if [ -z "$TICKET_ID" ]; then
     echo "  resolve-worktree.sh PROJ-123"
     echo "  resolve-worktree.sh PROJ-123 --skip-simplify"
     echo ""
-    echo "Options are passed to /resolve --auto --skip-workspace"
+    echo "Options are passed to /resolve --auto"
     exit 1
 fi
 
@@ -80,7 +79,6 @@ cd "$REPO_ROOT"
 
 # Default values
 WORKTREE_PARENT="../worktrees"
-WORKTREE_CMD=""
 BASE_BRANCH="main"
 
 # Load config if exists
@@ -89,8 +87,6 @@ if [ -f "$CONFIG_FILE" ]; then
     print_step "Loading config from $CONFIG_FILE"
 
     if command -v jq &> /dev/null; then
-        WORKTREE_CMD=$(jq -r '.workspace.worktree_command // empty' "$CONFIG_FILE" 2>/dev/null || echo "")
-        WORKTREE_PARENT=$(jq -r '.workspace.worktree_parent // "../worktrees"' "$CONFIG_FILE" 2>/dev/null || echo "../worktrees")
         BASE_BRANCH=$(jq -r '.branches.default_base // "main"' "$CONFIG_FILE" 2>/dev/null || echo "main")
     else
         print_warning "jq not found, using default config"
@@ -130,14 +126,7 @@ fi
 if [ ! -d "$WORKTREE_PATH" ]; then
     print_step "Creating worktree..."
 
-    if [ -n "$WORKTREE_CMD" ]; then
-        # Use configured command
-        print_step "Using configured worktree command"
-        CMD="${WORKTREE_CMD//\{\{ticket_id\}\}/$TICKET_ID}"
-        CMD="${CMD//\{\{branch_name\}\}/$BRANCH_NAME}"
-        echo "  Command: $CMD"
-        eval "$CMD"
-    elif [ -f "Makefile" ] && grep -q "worktree" Makefile 2>/dev/null; then
+    if [ -f "Makefile" ] && grep -q "worktree" Makefile 2>/dev/null; then
         # Try make target
         print_step "Using Makefile worktree target"
         if grep -q "worktree-new" Makefile; then
@@ -199,7 +188,7 @@ echo "════════════════════════�
 echo ""
 
 # Build the command
-CLAUDE_CMD="/resolve $TICKET_ID --auto --skip-workspace"
+CLAUDE_CMD="/resolve $TICKET_ID --auto"
 if [ -n "$*" ]; then
     CLAUDE_CMD="$CLAUDE_CMD $*"
 fi

@@ -1,6 +1,6 @@
 ---
 description: Main orchestrator for ticket resolution workflow - fetch, analyze, plan, implement, simplify, review, PR
-argument-hint: <ticket-id> [--auto] [--continue] [--plan-only] [--init] [--source youtrack|github] [--skip-workspace] [--skip-simplify] [--skip-review] [--pr] [--draft]
+argument-hint: <ticket-id> [--auto] [--continue] [--refine-plan] [--plan-only] [--init] [--source youtrack|github] [--skip-simplify] [--skip-review] [--pr] [--draft]
 allowed-tools: Read, Glob, Grep, Bash, Write, Task, AskUserQuestion, mcp__youtrack__get_issue, mcp__youtrack__get_issue_comments, mcp__youtrack__get_issue_attachments
 ---
 
@@ -22,14 +22,16 @@ Extract from arguments:
 - `--init`: Initialize project configuration (no ticket needed)
 - `--auto`: Automatic mode, no questions asked (default: interactive)
 - `--continue`: Resume from validated plan (skip to implementation)
+- `--refine-plan`: Refine existing plan interactively (challenge, find edge cases)
 - `--plan-only`: Stop after plan creation, suggest solo-implement.sh for epics
 - `--source`: Force source (youtrack, github, file)
-- `--skip-workspace`: Skip workspace setup (used by resolve-worktree.sh wrapper)
 - `--skip-simplify`: Skip code simplification phase
 - `--skip-review`: Skip code review phase
 - `--pr`: Create pull request after implementation (implied in auto mode)
 - `--draft`: Create PR as draft (default: true, use `--no-draft` for ready PR)
 - `--target`: Target branch for PR (default: auto-detect)
+
+**Note**: User must create their branch/worktree BEFORE running /resolve. This command does not manage workspace creation.
 
 ---
 
@@ -39,6 +41,7 @@ Extract from arguments:
 |-------------------|-------------|----------------------------------------|
 | `--init`          | INIT        | Configure project, then STOP           |
 | `--continue`      | CONTINUE    | Resume from validated plan             |
+| `--refine-plan`   | REFINE      | Load existing plan, interactive loop   |
 | `--auto`          | AUTO        | Complete workflow automatically        |
 | `--auto --plan-only` | PLAN-ONLY | Stop after plan, suggest solo-implement |
 | (default)         | INTERACTIVE | User validates plan, controls flow     |
@@ -80,36 +83,107 @@ Apply skill: `~/.claude/skills/init-project/SKILL.md`
 
 ---
 
+### REFINE MODE (`--refine-plan`)
+
+Refine an existing plan interactively. Useful after `--auto --plan-only` to challenge the plan, find edge cases, and iterate before implementation.
+
+1. **Verify Plan Exists**
+    - Read `.claude/feature/{ticket-id}/plan.md`
+    - If not found: ERROR "No plan found for {ticket-id}. Run /resolve first."
+
+2. **Load Context**
+    - Read `.claude/feature/{ticket-id}/ticket.md` (if exists)
+    - Read `.claude/feature/{ticket-id}/analysis.md` (if exists)
+    - Read `.claude/feature/{ticket-id}/status.json`
+
+3. **Display Context Summary**
+   ```markdown
+   ## Raffinement du plan: {ticket-id}
+
+   ### Contexte
+   - Ticket: {ticket summary}
+   - Complexite: {complexity level}
+   - Plan cree le: {created_at}
+
+   ### Plan actuel
+   {display plan content}
+   ```
+
+4. **Interactive Refinement Loop**
+
+   Apply skill: `~/.claude/skills/plan-validation/SKILL.md`
+
+   Options:
+   - **Poser des questions** → Claude asks clarifying questions about edge cases, missing scenarios
+   - **Challenger le plan** → User challenges choices, Claude defends or adapts
+   - **Modifier le plan** → Apply specific changes
+   - **Regenerer le plan** → Regenerate with new instructions
+   - **Valider et arreter** → Mark as validated, STOP
+   - **Valider et implementer** → /compact → continue to STEP: IMPLEMENT
+
+5. **Update Status**
+   When validated:
+   ```json
+   {
+     "state": "plan_validated",
+     "plan_validated_at": "{timestamp}",
+     "refined": true
+   }
+   ```
+
+---
+
 ### AUTO MODE (`--auto`)
+
+**Prerequisite**: User must create branch/worktree before running.
 
 Execute in order:
 
-1. STEP: WORKSPACE SETUP (unless `--skip-workspace`)
-2. STEP: INITIALIZATION
-3. STEP: FETCH TICKET
-4. STEP: ANALYZE COMPLEXITY
-5. STEP: EXPLORATION
-6. STEP: CREATE PLAN
-7. STEP: PLAN VALIDATION (auto-validate)
+1. STEP: INITIALIZATION
+2. STEP: FETCH TICKET
+3. STEP: ANALYZE COMPLEXITY
+4. STEP: EXPLORATION
+5. STEP: CREATE PLAN
+6. STEP: PLAN VALIDATION (auto-validate)
 
-**If `--plan-only`**: STOP here and display:
-```markdown
-## Plan créé pour {ticket-id}
+**If `--plan-only`**: STOP here and display the plan + next steps:
 
-Le plan est prêt. Pour une epic avec plusieurs phases complexes,
-lancez l'implémentation via le script externe :
+1. **Display the full plan** from `.claude/feature/{ticket-id}/plan.md`:
+   ```markdown
+   ## Plan d'implémentation: {ticket-id}
 
-  solo-implement.sh --feature {ticket-id}
+   {full plan content}
+   ```
 
-Ce script exécute chaque phase dans une session Claude séparée,
-évitant les problèmes de contexte sur les gros tickets.
-```
+2. **Display next steps**:
+   ```markdown
+   ---
+
+   ## Prochaines étapes
+
+   Le plan est sauvegardé dans `.claude/feature/{ticket-id}/plan.md`
+
+   **Options**:
+
+   1. **Raffiner le plan** (recommandé pour les epics complexes):
+      ```bash
+      /resolve {ticket-id} --refine-plan
+      ```
+      → Challenger le plan, trouver les edge cases, itérer
+
+   2. **Implémenter directement**:
+      ```bash
+      solo-implement.sh --feature {ticket-id}
+      ```
+      → Exécute chaque phase dans une session Claude séparée
+   ```
+
 **END OF PLAN-ONLY MODE**
 
-8. STEP: IMPLEMENT (execute /compact first, then implement in this session)
-9. STEP: SIMPLIFY (unless `--skip-simplify`)
-10. STEP: REVIEW (unless `--skip-review`)
-11. STEP: FINALIZE (push + PR)
+7. STEP: IMPLEMENT (execute /compact first, then implement in this session)
+8. STEP: SIMPLIFY (unless `--skip-simplify`)
+9. STEP: REVIEW (unless `--skip-review`)
+10. STEP: FINALIZE (push + PR)
 
 ---
 
@@ -129,25 +203,6 @@ Execute in order:
 8. STEP: SIMPLIFY (unless `--skip-simplify`)
 9. STEP: REVIEW (unless `--skip-review`)
 10. **STOP** (user manages push/PR)
-
----
-
-## STEP: WORKSPACE SETUP
-
-**AUTO mode only** (skip if `--skip-workspace`)
-
-1. Determine workspace type from config `workspace.prefer_worktree`
-2. Generate branch name: `{prefix}/{ticket-id}-{slug}`
-3. Create workspace:
-   ```bash
-   git fetch origin
-   git checkout {base-branch}
-   git pull origin {base-branch}
-   git checkout -b {branch-name}
-   ```
-4. Update status: `phases.workspace = "completed"`
-
-**Note**: For worktree with directory change, use `resolve-worktree.sh` wrapper.
 
 ---
 
@@ -342,16 +397,19 @@ Update status: `phases.finalize = "completed"`, `state = "finalized"`
 
 ## Mode Summary
 
+**Prerequisite for all modes**: User creates branch/worktree BEFORE running /resolve.
+
 | Aspect          | Interactive      | Auto          |
 |-----------------|------------------|---------------|
-| Workspace setup | User manages     | Automatic     |
+| Workspace setup | User manages     | User manages  |
 | Plan validation | Interactive loop | Auto-validate |
 | After plan      | STOP or continue | Continue      |
 | Push/PR         | User manages     | Automatic     |
 
 ### Interactive Flow
 
-```
+```bash
+git checkout -b feat/PROJ-123
 /resolve PROJ-123
   → Fetch → Analyze → Explore → Plan
   → VALIDATION LOOP
@@ -361,18 +419,46 @@ Update status: `phases.finalize = "completed"`, `state = "finalized"`
 
 ### Auto Flow
 
-```
+```bash
+git checkout -b feat/PROJ-123
 /resolve PROJ-123 --auto
-  → Workspace → Fetch → Analyze → Explore → Plan (auto-validated)
+  → Fetch → Analyze → Explore → Plan (auto-validated)
   → /compact → implement → simplify → review → push → PR
 ```
 
 ### Epic Flow (--plan-only)
 
-```
+```bash
+git checkout -b feat/PROJ-123
 /resolve PROJ-123 --auto --plan-only
-  → Workspace → Fetch → Analyze → Explore → Plan (auto-validated)
+  → Fetch → Analyze → Explore → Plan (auto-validated)
   → STOP + suggest: solo-implement.sh --feature PROJ-123
+```
+
+### Refine Flow (--refine-plan)
+
+```bash
+# After --plan-only, review the plan and refine interactively
+/resolve PROJ-123 --refine-plan
+  → Load plan + context
+  → INTERACTIVE REFINEMENT LOOP
+    → Poser des questions / Challenger / Modifier / Regenerer
+    → "Valider et implementer" → /compact → implement → ...
+    → "Valider et arreter" → STOP (--continue later)
+```
+
+**Typical Epic Workflow**:
+```bash
+# 1. Generate plan automatically
+/resolve PROJ-123 --auto --plan-only
+
+# 2. Review the plan, think about it...
+
+# 3. Refine interactively (challenge, find edge cases)
+/resolve PROJ-123 --refine-plan
+
+# 4. Implement (after "Valider et arreter")
+solo-implement.sh --feature PROJ-123
 ```
 
 ---
@@ -384,10 +470,6 @@ Project config: `.claude/ticket-config.json`
 ```json
 {
   "default_source": "auto",
-  "workspace": {
-    "prefer_worktree": false,
-    "skip_in_interactive": true
-  },
   "branches": {
     "default_base": "main",
     "prefix_mapping": {

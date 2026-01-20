@@ -45,7 +45,6 @@ Modular system for automated ticket resolution, integrating YouTrack (MCP) and G
     ├─► Fetch ticket → ticket.md
     ├─► Analyze complexity (SIMPLE/MEDIUM/COMPLEX)
     │   └─► If COMPLEX: Parallel AEP exploration
-    ├─► Setup workspace (branch) [--auto only]
     ├─► Create plan → plan.md
     ├─► /compact (clear context)
     ├─► Implementation (phase by phase)
@@ -75,31 +74,44 @@ Modular system for automated ticket resolution, integrating YouTrack (MCP) and G
 
 ### Full Automation (100% Autonomous)
 
+**Step 1**: Create your branch (required before running /resolve)
 ```bash
-# Standard ticket - complete workflow in one session
+git checkout -b feat/PROJ-123
+```
+
+**Step 2**: Run /resolve
+```bash
+# Standard ticket - complete workflow
 /resolve PROJ-123 --auto
 
-# Epic / large ticket - stop after plan, use solo-implement separately
+# Epic / large ticket - stop after plan
 /resolve PROJ-123 --auto --plan-only
 # Then: solo-implement.sh --feature PROJ-123
-
-# With worktree (isolated directory)
-~/.claude/scripts/resolve-worktree.sh PROJ-123
 ```
 
 **Standard `--auto`** workflow:
-1. Create workspace (branch)
-2. Fetch ticket → Analyze → Explore → Plan
-3. `/compact` (clear context)
-4. Implement all phases
-5. Simplify → Review → Push → PR
+1. Fetch ticket → Analyze → Explore → Plan
+2. `/compact` (clear context)
+3. Implement all phases
+4. Simplify → Review → Push → PR
 
 **Epic `--auto --plan-only`** workflow:
-1. Create workspace (branch)
-2. Fetch ticket → Analyze → Explore → Plan
-3. STOP and suggest `solo-implement.sh`
+1. Fetch ticket → Analyze → Explore → Plan
+2. STOP and suggest `solo-implement.sh`
+
+**Epic with refinement** (recommended for complex epics):
+```bash
+# Generate plan
+/resolve PROJ-123 --auto --plan-only
+# Review and refine interactively
+/resolve PROJ-123 --refine-plan
+# Then implement
+solo-implement.sh --feature PROJ-123
+```
 
 **When to use `--plan-only`?** For large epics with many phases. `solo-implement.sh` runs each phase in a separate Claude session, avoiding context overflow.
+
+**When to use `--refine-plan`?** After `--plan-only` to challenge the plan, find edge cases, and iterate with Claude before implementation.
 
 ### /resolve Options
 
@@ -118,6 +130,9 @@ Modular system for automated ticket resolution, integrating YouTrack (MCP) and G
 
 # Resume after plan validation (interactive mode)
 /resolve PROJ-123 --continue
+
+# Refine existing plan interactively (challenge, find edge cases)
+/resolve PROJ-123 --refine-plan
 
 # Create PR as ready (not draft)
 /resolve PROJ-123 --auto --no-draft
@@ -148,6 +163,28 @@ Modular system for automated ticket resolution, integrating YouTrack (MCP) and G
 5. **Review** (after simplify): View details / Auto-fix / Manual fix / Ignore?
 
 **Note**: In interactive mode, user manages their own branch/workspace. Push and PR are user's responsibility.
+
+### Refine Mode (`--refine-plan`)
+
+For refining an existing plan interactively after `--auto --plan-only`:
+
+```bash
+# 1. Generate plan automatically
+/resolve PROJ-123 --auto --plan-only
+
+# 2. Review the plan, think about it...
+
+# 3. Refine interactively
+/resolve PROJ-123 --refine-plan
+```
+
+**Refine Options**:
+- **Poser des questions** → Claude identifies edge cases, unclear areas
+- **Challenger le plan** → Discuss technical choices, propose alternatives
+- **Modifier le plan** → Apply specific changes
+- **Régénérer le plan** → Regenerate with new instructions
+- **Valider et implémenter** → `/compact` → implementation
+- **Valider et arrêter** → STOP (resume via `--continue`)
 
 ### Complexity Levels
 
@@ -335,12 +372,6 @@ EOF
     "repo": "owner/repo",
     "issue_prefix": "#"
   },
-  "workspace": {
-    "prefer_worktree": false,
-    "worktree_parent": "../worktrees",
-    "worktree_command": null,
-    "auto_stash": true
-  },
   "branches": {
     "default_base": "main",
     "prefix_mapping": {
@@ -514,23 +545,29 @@ Prevent PR creation if critical issues exist. Default: `true`.
 
 ## Worktree Support
 
-Worktrees allow working on multiple tickets in parallel in separate directories. **However**, they require specific setup (docker, .env, etc.).
+Worktrees allow working on multiple tickets in parallel in separate directories.
 
-### Automatic Detection
+**Important**: `/resolve` does NOT manage workspace creation. You must create your branch or worktree manually before running `/resolve`.
 
-The workflow automatically detects if the project supports worktrees by searching for:
+### Manual Worktree Setup
 
-- Makefile targets: `worktree:`, `worktree-new:`, `wt-setup:`
-- Scripts: `scripts/*worktree*`, `bin/*wt*`
-- npm/composer scripts containing "worktree"
-- Documentation mentioning worktree
+```bash
+# Create worktree with feature branch
+git worktree add ../worktrees/PROJ-123 -b feat/PROJ-123
 
-### Enabling Worktree Support
+# Copy environment files if needed
+cp .env ../worktrees/PROJ-123/.env
 
-**Option 1: Add a Makefile target**
+# Move to worktree and run /resolve
+cd ../worktrees/PROJ-123
+claude -p "/resolve PROJ-123 --auto"
+```
+
+### Recommended: Makefile Target
+
+Add a Makefile target for consistent worktree creation:
 
 ```makefile
-# In your Makefile
 WORKTREE_DIR ?= ../worktrees
 
 worktree-new: ## Create worktree for ticket
@@ -546,23 +583,13 @@ worktree-remove: ## Remove worktree
 	git worktree remove $(WORKTREE_DIR)/$(TICKET) --force
 ```
 
-**Option 2: Configure explicitly**
+Usage:
 
-```json
-{
-  "workspace": {
-    "worktree_command": "make worktree-new TICKET={{ticket_id}}"
-  }
-}
+```bash
+make worktree-new TICKET=PROJ-123
+cd ../worktrees/PROJ-123
+claude -p "/resolve PROJ-123 --auto"
 ```
-
-### Behavior
-
-| Situation                               | Action                            |
-|-----------------------------------------|-----------------------------------|
-| Tooling detected                        | Offers branch/worktree choice     |
-| No tooling                              | Uses branch (no worktree mention) |
-| `prefer_worktree: true` without tooling | Warning + fallback to branch      |
 
 ---
 
@@ -574,7 +601,8 @@ worktree-remove: ## Remove worktree
 | `architect`       | Architecture guidelines for quality plans     |
 | `fetch-ticket`    | Multi-source ticket retrieval                 |
 | `analyze-ticket`  | Complexity analysis and scoring               |
-| `setup-workspace` | Branch/worktree creation                      |
+| `init-project`    | Interactive project configuration wizard      |
+| `plan-validation` | Plan validation loop with modification options|
 | `ticket-workflow` | State machine and coordination                |
 | `code-review`     | Dual-perspective code review (tech + product) |
 | `create-pr`       | Push branch and create pull request           |
@@ -608,6 +636,20 @@ The code-reviewer agent applies senior engineer standards with focus on:
 ---
 
 ## Scripts
+
+### Installation
+
+Add scripts to your PATH for global access:
+
+```bash
+# Add to ~/.bashrc or ~/.zshrc
+export PATH="$HOME/.claude/scripts:$PATH"
+
+# Reload
+source ~/.bashrc  # or source ~/.zshrc
+```
+
+This makes `solo-implement.sh` and `resolve-worktree.sh` available from anywhere.
 
 ### solo-implement.sh
 
@@ -672,12 +714,11 @@ gh auth login
 
 ---
 
-## Complete Examples
+## Project Initialization
 
-### Example 1: Full Interactive Workflow (YouTrack)
+Before using `/resolve`, initialize your project configuration (once per project):
 
 ```bash
-# 1. PROJECT INITIALIZATION (once)
 $ cd /path/to/my-project
 $ claude
 
@@ -698,8 +739,17 @@ $ claude
 ✓ Configuration saved: .claude/ticket-config.json
 ```
 
+---
+
+## Complete Examples
+
+### Example 1: Interactive Workflow
+
 ```bash
-# 2. RESOLVING A TICKET
+# 1. Create your branch
+$ git checkout -b feat/myapp-123-add-csv-export
+
+# 2. Run /resolve
 > /resolve MYAPP-123
 
 Ticket fetched: "Add CSV export for users"
@@ -709,13 +759,6 @@ Suggested complexity: MEDIUM (score: 4)
 ? Which workflow to use?
   ● Standard - Light exploration + structured plan
 
-? Base branch?
-  ● main
-
-? Branch name?
-  ● feat/myapp-123-add-csv-export-users
-
-✓ Branch created
 ✓ Exploration completed (similar files found)
 ✓ Plan generated: .claude/feature/myapp-123/plan.md
 
@@ -757,19 +800,26 @@ Pour finaliser:
   /create-pr
 ```
 
+### Example 2: Epic Workflow (large tickets)
+
+For large tickets with many phases, use interactive mode to refine the plan, then `solo-implement.sh` for implementation:
+
 ```bash
-# 3. EPIC WORKFLOW (for large tickets with many phases)
+# 1. Create your branch or worktree
+$ git checkout -b feat/myapp-123
+# Or with worktree:
+# $ git worktree add ../worktrees/myapp-123 -b feat/myapp-123
+# $ cd ../worktrees/myapp-123
 
-# Option A: With automatic branch creation
-$ claude -p "/resolve myapp-123 --auto --plan-only"
-# → Creates branch feat/myapp-123-xxx
-# → Creates .claude/feature/myapp-123/plan.md
-$ solo-implement.sh --feature myapp-123
+# 2. Launch Claude interactively
+$ claude
 
-# Option B: With worktree (manual setup required)
-$ git worktree add ../worktrees/myapp-123 -b feat/myapp-123
-$ cd ../worktrees/myapp-123
-$ claude -p "/resolve myapp-123 --auto --plan-only --skip-workspace"
+# 3. Generate and refine the plan
+> /resolve MYAPP-123
+# → Review the plan, iterate, challenge it...
+# → Choose "Valider et arrêter" when satisfied
+
+# 4. Exit Claude and run implementation (separate sessions per phase)
 $ solo-implement.sh --feature myapp-123
 
 ╔═══════════════════════════════════════════════════════════╗
@@ -835,7 +885,7 @@ Next steps:
 ```
 
 ```bash
-# 4. VERIFICATION AND PR
+# 5. VERIFICATION AND PR
 $ git log --oneline -n 4
 a1b2c3d feat(ui): add export button to users page
 e4f5g6h feat(api): add CSV export endpoint for users
@@ -847,18 +897,131 @@ $ gh pr create --title "feat: Add CSV export for users (MYAPP-123)"
 
 ---
 
-### Example 2: Automatic Mode (quick fix)
+### Example 3: Plan-Only + Refine Workflow
+
+For complex epics where you want to review and challenge the plan before implementation:
 
 ```bash
-# All in one command, no interaction - implements AND creates PR
-$ claude -p "/resolve MYAPP-456 --auto"
+# 1. Create your branch
+$ git checkout -b feat/myapp-789
 
-# Or with explicit flags
-> /resolve MYAPP-456 --auto
+# 2. Generate plan automatically (no implementation)
+$ claude -p "/resolve MYAPP-789 --auto --plan-only"
+
+✓ Ticket: "Implement user notification system"
+✓ Complexity: COMPLEX (score: 8)
+✓ Exploration: 3 agents completed
+✓ Plan: 5 phases
+
+## Plan d'implémentation: MYAPP-789
+
+### Phase 1: Create notification entity and repository
+**Goal**: Database layer for notifications
+**Files**: src/Entity/Notification.php, src/Repository/NotificationRepository.php
+**Validation**: bin/phpunit tests/Repository/NotificationRepositoryTest.php
+
+### Phase 2: Create notification service
+**Goal**: Business logic for creating/sending notifications
+**Files**: src/Service/NotificationService.php
+**Validation**: bin/phpunit tests/Service/NotificationServiceTest.php
+
+### Phase 3: Add real-time delivery via WebSocket
+...
+
+### Phase 4: Create API endpoints
+...
+
+### Phase 5: Add admin interface
+...
+
+---
+
+## Prochaines étapes
+
+**Options**:
+1. Raffiner le plan: /resolve MYAPP-789 --refine-plan
+2. Implémenter: solo-implement.sh --feature myapp-789
+```
+
+```bash
+# 3. Review the plan, think about edge cases...
+#    Then refine interactively
+
+$ claude
+
+> /resolve MYAPP-789 --refine-plan
+
+## Raffinement du plan: MYAPP-789
+
+[Plan displayed]
+
+? Comment souhaitez-vous raffiner ce plan ?
+  > Poser des questions
+
+## Questions sur le plan
+
+### Edge Cases
+1. Que se passe-t-il si l'utilisateur est déconnecté pendant l'envoi ?
+2. Comment gérer les notifications en masse (>1000 users) ?
+
+### Clarifications
+3. Phase 3 mentionne WebSocket - avez-vous une préférence entre Mercure et Pusher ?
+4. Les notifications doivent-elles être persistées après lecture ?
+
+> On utilise Mercure (déjà en place). Pour les notifications en masse,
+> on devrait ajouter un système de queue. Oui, persistées 30 jours.
+
+[Claude updates plan with queue system in Phase 2]
+
+? Comment souhaitez-vous raffiner ce plan ?
+  > Challenger le plan
+
+Qu'est-ce qui vous préoccupe ?
+
+> La phase 3 (WebSocket) dépend de la phase 2 (service).
+> Ne devrait-on pas faire le service de base d'abord, puis ajouter
+> le real-time dans une phase séparée ?
+
+Vous avez raison. Je propose de restructurer:
+- Phase 2: NotificationService (création, stockage, queue)
+- Phase 3: NotificationDeliveryService (email, in-app)
+- Phase 4: Real-time via Mercure (séparé)
+
+Voulez-vous appliquer cette modification ?
+
+> Oui
+
+[Plan updated]
+
+? Que faire maintenant ?
+  > Valider et arrêter
+
+## Plan Validé
+
+Pour lancer l'implémentation:
+  solo-implement.sh --feature myapp-789
+```
+
+```bash
+# 4. Implement with fresh context per phase
+$ solo-implement.sh --feature myapp-789
+
+[Each phase runs in separate Claude session]
+```
+
+---
+
+### Example 4: Automatic Mode (quick fix)
+
+```bash
+# Step 1: Create branch
+$ git checkout -b fix/myapp-456
+
+# Step 2: Run /resolve --auto
+$ claude -p "/resolve MYAPP-456 --auto"
 
 ✓ Ticket: "Fix typo in login error message"
 ✓ Complexity: SIMPLE (score: 1)
-✓ Branch: fix/myapp-456-fix-typo-login-error
 ✓ Plan: 1 phase
 
 [/compact - clearing context]
@@ -889,7 +1052,7 @@ Done! PR ready for review.
 
 ---
 
-### Example 3: Resume After Interruption
+### Example 5: Resume After Interruption
 
 ```bash
 # Previous session interrupted at phase 2
@@ -909,15 +1072,15 @@ Phase 1: ✅ (already completed)
 # Or resume the /resolve workflow
 > /resolve MYAPP-123
 
-? A workflow already exists (state: workspace_ready). What to do?
-  ● Resume - Continue from 'plan'
+? A workflow already exists (state: planned). What to do?
+  ● Resume - Continue from 'implement'
   ○ Restart - Delete and start over
   ○ Cancel
 ```
 
 ---
 
-### Example 4: GitHub Issues Workflow
+### Example 6: GitHub Issues Workflow
 
 ```bash
 # Configuration for GitHub project
@@ -940,7 +1103,7 @@ Ticket fetched: "Add dark mode support"
 
 ---
 
-### Example 5: Advanced solo-implement.sh Options
+### Example 7: Advanced solo-implement.sh Options
 
 ```bash
 # Preview without execution
@@ -967,7 +1130,7 @@ $ solo-implement.sh --feature myapp-123 --thinking-budget 10000
 
 ---
 
-### Example 6: Generated Files Structure
+### Example 8: Generated Files Structure
 
 ```bash
 $ tree .claude/feature/myapp-123/
@@ -985,16 +1148,10 @@ $ cat .claude/feature/myapp-123/status.json
   "source": "youtrack",
   "state": "finalized",
   "complexity": "medium",
-  "workspace": {
-    "type": "branch",
-    "name": "feat/myapp-123-add-csv-export",
-    "base": "main"
-  },
   "phases": {
     "fetch": "completed",
     "analyze": "completed",
     "explore": "completed",
-    "workspace": "completed",
     "plan": "completed",
     "implement": "completed",
     "simplify": "completed",

@@ -12,7 +12,7 @@ Interactive validation loop for implementation plans. Allows users to review, mo
 - `ticket_id`: The ticket identifier
 - `plan_path`: Path to plan file (`.claude/feature/{ticket-id}/plan.md`)
 - `status_path`: Path to status file (`.claude/feature/{ticket-id}/status.json`)
-- `mode`: Either "interactive" or "auto"
+- `mode`: Either "interactive", "auto", or "refine"
 
 ## Behavior by Mode
 
@@ -33,6 +33,14 @@ In AUTO mode, the plan is validated automatically without user interaction:
 ### INTERACTIVE Mode
 
 In INTERACTIVE mode, enter the validation loop described below.
+
+### REFINE Mode
+
+REFINE mode is similar to INTERACTIVE mode but with additional options for deep plan analysis:
+
+1. Display plan summary (same as INTERACTIVE)
+2. Present extended options including "Poser des questions" and "Challenger le plan"
+3. Enter refinement loop (see "Refine-Specific Options" below)
 
 ## Validation Loop
 
@@ -60,6 +68,8 @@ Display the full plan content from the plan file.
 
 ### 2. Present Options
 
+**INTERACTIVE mode options:**
+
 ```
 AskUserQuestion:
   question: "Que souhaitez-vous faire avec ce plan ?"
@@ -75,7 +85,110 @@ AskUserQuestion:
       description: "Relancer la generation avec nouvelles instructions"
 ```
 
+**REFINE mode options (extended):**
+
+```
+AskUserQuestion:
+  question: "Comment souhaitez-vous raffiner ce plan ?"
+  header: "Raffiner"
+  options:
+    - label: "Poser des questions"
+      description: "Claude identifie les zones d'ombre et pose des questions"
+    - label: "Challenger le plan"
+      description: "Discuter des choix techniques, trouver les edge cases"
+    - label: "Modifier le plan"
+      description: "Apporter des changements au plan"
+    - label: "Regenerer le plan"
+      description: "Relancer la generation avec nouvelles instructions"
+
+# After refinement discussion:
+AskUserQuestion:
+  question: "Que faire maintenant ?"
+  header: "Suite"
+  options:
+    - label: "Continuer le raffinement"
+      description: "Continuer a challenger et affiner le plan"
+    - label: "Valider et implementer"
+      description: "Confirmer le plan, /compact et lancer l'implementation"
+    - label: "Valider et arreter"
+      description: "Confirmer le plan, continuer plus tard via --continue"
+```
+
 ### 3. Handle User Choice
+
+#### Option: "Poser des questions" (REFINE mode only)
+
+Claude analyzes the plan and identifies potential issues, edge cases, and unclear areas:
+
+1. **Analyze the plan** for:
+   - Ambiguous requirements or missing details
+   - Edge cases not covered
+   - Error handling gaps
+   - Performance considerations
+   - Security implications
+   - Testing scenarios missing
+
+2. **Present questions** to the user:
+   ```markdown
+   ## Questions sur le plan
+
+   En analysant le plan, j'ai identifie les points suivants:
+
+   ### Edge Cases
+   1. Que se passe-t-il si {scenario X} ?
+   2. Comment gerer le cas ou {condition Y} ?
+
+   ### Clarifications necessaires
+   3. Dans la phase 2, {question about implementation detail}
+   4. Pour {component}, avez-vous une preference pour {option A vs B} ?
+
+   ### Risques potentiels
+   5. {potential risk} - comment souhaitez-vous le gerer ?
+   ```
+
+3. **Discuss answers** with user and update plan if needed
+
+4. Return to options menu (REFINE mode options)
+
+#### Option: "Challenger le plan" (REFINE mode only)
+
+Interactive discussion mode where the user challenges the plan:
+
+1. **Prompt for challenge**:
+   ```markdown
+   ## Challenger le plan
+
+   Vous pouvez:
+   - Questionner les choix techniques
+   - Proposer des alternatives
+   - Identifier des problemes potentiels
+   - Demander des justifications
+
+   Qu'est-ce qui vous preoccupe ou que souhaitez-vous challenger ?
+   ```
+
+2. **Claude responds** to challenges:
+   - Defends choices with reasoning
+   - Acknowledges valid concerns
+   - Proposes modifications when appropriate
+   - Identifies trade-offs
+
+3. **Apply changes** to plan if agreed upon
+
+4. **Continue discussion** or return to options menu
+
+Example challenge flow:
+```
+User: "Je pense que la phase 2 est trop complexe, on pourrait simplifier"
+Claude: "Vous avez raison, la phase 2 fait X, Y et Z. On pourrait:
+  - Option A: Fusionner Y et Z
+  - Option B: Deplacer Z en phase 3
+  Quelle approche preferez-vous?"
+User: "Option A"
+Claude: *updates plan* "J'ai mis a jour le plan. Voulez-vous challenger autre chose?"
+```
+
+5. Return to options menu when done
 
 #### Option: "Modifier le plan"
 
@@ -203,9 +316,19 @@ The skill returns one of:
 
 This skill updates `.claude/feature/{ticket-id}/status.json`:
 
+**INTERACTIVE mode:**
 ```json
 {
   "state": "plan_validated",
   "plan_validated_at": "2025-01-19T10:30:00+01:00"
+}
+```
+
+**REFINE mode:**
+```json
+{
+  "state": "plan_validated",
+  "plan_validated_at": "2025-01-19T10:30:00+01:00",
+  "refined": true
 }
 ```
