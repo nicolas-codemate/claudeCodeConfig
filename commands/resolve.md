@@ -44,11 +44,11 @@ User must create their branch/worktree BEFORE running /resolve.
 
 ## Workflow
 
-Apply skill: `~/.claude/skills/resolve/SKILL.md`
+Apply skill: `~/.claude/skills/resolve-workflow/SKILL.md`
 
 The skill will:
 1. Parse arguments and determine mode
-2. Load appropriate step from `~/.claude/skills/resolve/steps/`
+2. Load appropriate step from `~/.claude/skills/resolve-workflow/steps/`
 3. Execute step instructions
 4. Follow `next` directive to continue or STOP
 
@@ -69,7 +69,7 @@ The skill will:
 
 ## Mode Details
 
-See `~/.claude/skills/resolve/references/modes.md` for detailed mode behaviors.
+See `~/.claude/skills/resolve-workflow/references/modes.md` for detailed mode behaviors.
 
 ## Language
 

@@ -1,5 +1,5 @@
 ---
-name: resolve
+name: resolve-workflow
 description: Modular ticket resolution workflow orchestrator. Loads steps dynamically based on mode and current state.
 ---
 
@@ -41,7 +41,7 @@ Extract from arguments:
 <workflow>
 1. Check mode to determine starting point
 2. If CONTINUE or REFINE: verify status.json exists and is valid
-3. Read step file: `~/.claude/skills/resolve/steps/{step-number}-{step-name}.md`
+3. Read step file: `~/.claude/skills/resolve-workflow/steps/{step-number}-{step-name}.md`
 4. Execute step instructions
 5. Read step frontmatter for `next` directive
 6. Continue to next step or STOP
@@ -80,7 +80,7 @@ Extract from arguments:
 
 ## Mode Reference
 
-See `~/.claude/skills/resolve/references/modes.md` for detailed mode behaviors.
+See `~/.claude/skills/resolve-workflow/references/modes.md` for detailed mode behaviors.
 
 ## Step Files
 
