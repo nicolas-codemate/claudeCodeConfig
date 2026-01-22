@@ -286,6 +286,54 @@ After fetching the ticket, extract Figma URLs for visual verification:
 
 4. **AUTO mode without URLs** → skip visual verification (no prompt possible)
 
+### Add User Context (INTERACTIVE only)
+
+In INTERACTIVE mode, offer the user an opportunity to provide additional context:
+
+```
+AskUserQuestion:
+  question: "Voulez-vous ajouter du contexte supplementaire pour ce ticket ?"
+  header: "Context"
+  options:
+    - label: "Oui, j'ai des precisions"
+      description: "Ajouter des commentaires, contraintes ou clarifications"
+    - label: "Non, continuer"
+      description: "Le ticket est suffisamment clair"
+```
+
+**If user chooses to add context**:
+
+1. **Prompt for free-form input** - Let user type their additional context
+2. **Store in status.json**:
+   ```json
+   {
+     "user_context": "Additional context provided by user..."
+   }
+   ```
+3. **Append to ticket.md**:
+   ```markdown
+   ---
+
+   ## Additional Context (User Provided)
+
+   {user_context}
+   ```
+
+**Types of context the user might provide**:
+- Technical constraints not mentioned in the ticket
+- Preferred implementation approach
+- Related code areas to check
+- Edge cases to consider
+- Business rules clarifications
+- Dependencies or blockers
+- Links to documentation or examples
+
+This context will be used during:
+- Complexity analysis
+- Exploration phase
+- Plan generation
+- Implementation
+
 ---
 
 ## STEP: ANALYZE COMPLEXITY
