@@ -60,6 +60,15 @@
 - Use type hints and documentation where appropriate
 - Prioritize readability and maintainability over clever solutions
 
+## Code Formatting (Linters)
+
+After completing ALL modifications on a file, run the appropriate linter once:
+
+- **PHP**: `docker compose exec -T php ./vendor/bin/php-cs-fixer fix <file> --quiet`
+- **JS/TS/Vue**: `docker compose exec -T webapp yarn lint <file> --fix --quiet`
+
+**Important**: Run the linter only ONCE per file, after all edits are done. Do not run it after each individual edit to avoid race conditions with unused imports.
+
 ## Quality Assurance - Always Works
 
 **CRITICAL**: "Should work" is NOT "does work". Pattern matching and logical reasoning are not enough. Every change MUST be verified.
@@ -96,3 +105,91 @@ Before declaring something fixed, ask yourself:
 - Would I bet money this works?
 
 **Time saved skipping tests: 30 seconds. Time wasted when it fails: 30 minutes. User trust lost: immeasurable.**
+
+## Prompt Formatting Guidelines (Claude 4.x Best Practices)
+
+### Use XML Tags for Structure
+
+XML tags help Claude understand prompt sections clearly. Use them consistently.
+
+| Tag | Usage |
+|-----|-------|
+| `<context>` | Background, situation, why this exists |
+| `<instructions>` | Steps to follow (numbered) |
+| `<constraints>` | Limits, rules, interdictions |
+| `<output>` | Expected output format |
+| `<example>` | Concrete examples |
+| `<auto_behavior>` | Behavior in AUTO mode |
+| `<interactive_behavior>` | Behavior in INTERACTIVE mode |
+
+### Be Explicit and Provide Context
+
+Bad: "Create a dashboard"
+Good: "Create an analytics dashboard with interactive charts for user engagement metrics"
+
+Bad: "NEVER use ellipses"
+Good: "The text will be read by TTS, avoid ellipses as they cannot be pronounced"
+
+### Nest Tags for Hierarchy
+
+Tags can be nested to organize complex information:
+
+```xml
+<instructions>
+  <step name="fetch">
+    1. Retrieve ticket from source
+    2. Parse content
+  </step>
+  <step name="analyze">
+    1. Calculate complexity score
+    2. Determine workflow
+  </step>
+</instructions>
+```
+
+### Standard Tags for Skills/Steps
+
+For modular skills and workflow steps, use these standard tags:
+
+- `<context>` : Why this phase exists
+- `<instructions>` : What to do (numbered steps)
+- `<output>` : Files/status to produce
+- `<constraints>` : Rules and limits
+- `<interactive_behavior>` : How to behave when user interaction is available
+- `<auto_behavior>` : How to behave in automatic mode
+
+### Frontmatter for Step Metadata
+
+Use YAML frontmatter for step configuration:
+
+```yaml
+---
+name: step-name
+description: Brief description
+order: 0
+
+skip_if:
+  - flag: "--some-flag"
+  - condition: "some_condition == true"
+
+next:
+  default: next-step
+  conditions:
+    - if: "mode == 'INIT'"
+      then: STOP
+
+tools:
+  - Read
+  - Write
+  - Bash
+---
+```
+
+### Prompt Quality Checklist
+
+- [ ] Context explains WHY, not just WHAT
+- [ ] Instructions are numbered and actionable
+- [ ] Constraints are explicit and justified
+- [ ] Examples show concrete expected behavior
+- [ ] Auto/Interactive behaviors are differentiated
+- [ ] Output format is clearly specified
