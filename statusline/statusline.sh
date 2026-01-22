@@ -99,8 +99,6 @@ DIR=$(get_current_dir)
 GIT_BRANCH=$(get_git_branch)
 COST=$(get_cost)
 COST_FORMATTED=$(printf "%.2f" "$COST")
-LINES_ADDED=$(get_lines_added)
-LINES_REMOVED=$(get_lines_removed)
 
 # Récupérer les tokens directement du JSON (utilise current_usage)
 INPUT_TOKENS=$(get_current_input_tokens)
@@ -120,5 +118,5 @@ GREEN='\033[0;32m'
 RED='\033[0;31m'
 RESET='\033[0m'
 
-echo -e "[$MODEL] 📁 ${DIR##*/}$GIT_BRANCH | ${GREEN}+${LINES_ADDED}${RESET}, ${RED}-${LINES_REMOVED}${RESET} | ${GREEN}\$${COST_FORMATTED}${RESET}
+echo -e "[$MODEL] 📁 ${DIR##*/}$GIT_BRANCH | ${GREEN}\$${COST_FORMATTED}${RESET}
 $PROGRESS_BAR"

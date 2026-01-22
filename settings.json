@@ -28,6 +28,15 @@
       "mcp__jetbrains__get_all_open_file_paths",
       "mcp__jetbrains__list_directory_tree",
 
+      "mcp__youtrack__get_issue",
+      "mcp__youtrack__get_issue_comments",
+      "mcp__youtrack__get_issue_activities",
+      "mcp__youtrack__search_issues",
+      "mcp__youtrack__get_projects",
+      "mcp__youtrack__get_issue_attachments",
+
+      "mcp__figma-screenshot__figma_screenshot",
+
       "mcp__context7__resolve-library-id",
       "mcp__context7__query-docs",
 
@@ -62,17 +71,6 @@
         ]
       }
     ],
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ~/.claude/hooks/play-sound.js done"
-          }
-        ]
-      }
-    ],
     "Notification": [
       {
         "matcher": "",
@@ -84,13 +82,13 @@
         ]
       }
     ],
-    "SubagentStop": [
+    "Stop": [
       {
         "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "node ~/.claude/hooks/play-sound.js"
+            "command": "node ~/.claude/hooks/play-sound.js done"
           }
         ]
       }
