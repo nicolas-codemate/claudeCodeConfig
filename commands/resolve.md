@@ -27,6 +27,7 @@ Extract from arguments:
 - `--source`: Force source (youtrack, github, file)
 - `--skip-simplify`: Skip code simplification phase
 - `--skip-review`: Skip code review phase
+- `--skip-visual-verify`: Skip visual verification during implementation
 - `--pr`: Create pull request after implementation (implied in auto mode)
 - `--draft`: Create PR as draft (default: true, use `--no-draft` for ready PR)
 - `--target`: Target branch for PR (default: auto-detect)
@@ -256,6 +257,35 @@ Apply skill: `~/.claude/skills/fetch-ticket/SKILL.md`
 - Save to `.claude/feature/{ticket-id}/ticket.md`
 - Update status: `phases.fetch = "completed"`
 
+### Extract Figma URLs
+
+After fetching the ticket, extract Figma URLs for visual verification:
+
+1. **Parse ticket content** (description + comments) for Figma URLs:
+   - Pattern: `https://www.figma.com/(file|design|proto|board)/[A-Za-z0-9]+/.*node-id=[\d-]+`
+
+2. **If URLs found** → store in `status.json`:
+   ```json
+   {
+     "figma_urls": ["url1", "url2"]
+   }
+   ```
+
+3. **If no URLs found AND INTERACTIVE mode**:
+   ```
+   AskUserQuestion:
+     question: "Aucun lien Figma specifique trouve dans le ticket. Y a-t-il des ecrans Figma a verifier ?"
+     header: "Figma"
+     options:
+       - label: "Oui, je fournis les liens"
+         description: "Saisir les URLs Figma pour verification visuelle"
+       - label: "Non, pas de verification"
+         description: "Continuer sans verification visuelle"
+   ```
+   - If user provides URLs → store them in `status.json`
+
+4. **AUTO mode without URLs** → skip visual verification (no prompt possible)
+
 ---
 
 ## STEP: ANALYZE COMPLEXITY
@@ -369,11 +399,73 @@ Update status: `state = "plan_validated"`, `plan_validated_at = "{timestamp}"`
    - Implement the changes
    - Run validation command if specified
    - Commit with the suggested commit message
+   - **Visual Verification** (if applicable, see below)
    - Move to next phase
 
 4. Update status: `phases.implement = "completed"`, `state = "implementing"`
 
 **Note**: For very large epics with many phases, use `--plan-only` flag and run `solo-implement.sh` separately. This launches each phase in its own Claude session with fresh context.
+
+### Visual Verification (per phase)
+
+After each phase that modifies frontend files, verify against Figma designs.
+
+**Conditions to trigger**:
+- `--skip-visual-verify` NOT set
+- `config.visual_verify.enabled = true`
+- Figma URLs available in `status.json`
+- Phase modified frontend files (`.vue`, `.tsx`, `.jsx`, `.css`, `.scss`, etc.)
+
+**Execution**:
+
+1. **Check for frontend changes**:
+   ```bash
+   git diff --name-only HEAD~1 | grep -E '\.(vue|tsx|jsx|css|scss|less|html)$'
+   ```
+
+2. **If frontend files modified AND Figma URLs available**:
+   ```
+   Task({
+     subagent_type: "visual-verify",
+     prompt: "Compare Figma designs with browser render.
+              Figma URLs: {figma_urls from status.json}
+              Base URL: {config.visual_verify.base_url}
+              Context: Phase {N} - {phase description}
+              Ticket: {ticket-id}"
+   })
+   ```
+
+3. **Handle results**:
+
+   | Status | Action |
+   |--------|--------|
+   | `pass` | Continue to next phase |
+   | `needs_attention` | **INTERACTIVE**: Show report, ask user if they want to fix. **AUTO**: Log warning, continue |
+   | `fail` | **INTERACTIVE**: Show report, ask user to fix before continuing. **AUTO**: Log warning in PR body |
+   | `skipped` | Continue (MCP unavailable, app not running, etc.) |
+
+4. **INTERACTIVE mode - on needs_attention or fail**:
+   ```
+   AskUserQuestion:
+     question: "Des ecarts visuels ont ete detectes (score: {score}/5). Que voulez-vous faire ?"
+     header: "Visual"
+     options:
+       - label: "Voir le rapport"
+         description: "Afficher le rapport detaille des differences"
+       - label: "Corriger maintenant"
+         description: "Appliquer les corrections suggerees"
+       - label: "Ignorer et continuer"
+         description: "Continuer sans corriger (sera note dans la PR)"
+   ```
+
+5. **Store visual warnings** in `status.json` for PR body:
+   ```json
+   {
+     "visual_warnings": [
+       { "screen": "...", "score": 3, "report": "path/to/report" }
+     ]
+   }
+   ```
 
 ---
 

@@ -58,5 +58,14 @@
     "severity_threshold": "important",
     "model": null,
     "block_on_critical": true
+  },
+  "visual_verify": {
+    "enabled": true,
+    "base_url": "http://localhost:5173",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "frontend_extensions": [".vue", ".tsx", ".jsx", ".css", ".scss", ".less", ".html", ".svelte"]
   }
 }
