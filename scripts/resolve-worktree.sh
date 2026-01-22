@@ -175,6 +175,34 @@ if [ -d ".claude" ] && [ ! -d "$WORKTREE_PATH/.claude" ]; then
     echo "  Copied: .claude/"
 fi
 
+# Store base branch info in status.json for PR target detection
+print_step "Storing base branch info..."
+FEATURE_DIR="$WORKTREE_PATH/.claude/feature/$TICKET_SLUG"
+mkdir -p "$FEATURE_DIR"
+STATUS_FILE="$FEATURE_DIR/status.json"
+
+if command -v jq &> /dev/null; then
+    if [ -f "$STATUS_FILE" ]; then
+        # Update existing status.json
+        jq --arg base "$BASE_BRANCH" '.options.base_branch = $base' "$STATUS_FILE" > "$STATUS_FILE.tmp" && mv "$STATUS_FILE.tmp" "$STATUS_FILE"
+    else
+        # Create new status.json with base_branch
+        cat > "$STATUS_FILE" << EOF
+{
+  "ticket_id": "$TICKET_ID",
+  "state": "pending",
+  "options": {
+    "base_branch": "$BASE_BRANCH"
+  },
+  "phases": {}
+}
+EOF
+    fi
+    echo "  Stored base branch: $BASE_BRANCH"
+else
+    print_warning "jq not found, skipping status.json update"
+fi
+
 echo ""
 print_step "Changing to worktree directory..."
 cd "$WORKTREE_PATH"

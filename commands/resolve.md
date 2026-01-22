@@ -234,6 +234,17 @@ Execute in order:
 4. **Initialize Status**
    Create `.claude/feature/{ticket-id}/status.json` with initial state.
 
+   If `--target` flag is provided, store it in `options.base_branch`:
+   ```json
+   {
+     "options": {
+       "base_branch": "{--target value}"
+     }
+   }
+   ```
+
+   If status.json already exists (e.g., from `resolve-worktree.sh`), preserve existing `options.base_branch` unless `--target` is explicitly provided.
+
 ---
 
 ## STEP: FETCH TICKET
@@ -411,10 +422,16 @@ Apply skill: `~/.claude/skills/create-pr/SKILL.md`
 
 1. Push branch: `git push -u origin {branch-name}`
 2. Check for existing PR
-3. Create PR (draft by default)
+3. Determine target branch (priority order):
+   - `--target` flag if provided
+   - `status.json` → `options.base_branch` (from worktree creation or --target)
+   - `ticket.md` → Target Branch metadata (from milestone parsing)
+   - Branch pattern matching
+   - Project config fallback
+4. Create PR (draft by default)
 
 **INTERACTIVE**: Ask for PR options (draft/ready, target branch)
-**AUTO**: Create draft PR targeting base branch
+**AUTO**: Create draft PR targeting detected base branch
 
 Update status: `phases.finalize = "completed"`, `state = "finalized"`
 

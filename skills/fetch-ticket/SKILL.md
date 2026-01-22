@@ -50,6 +50,33 @@ Input ID → Detect Source
    - `tags[].name` → Labels
    - `customFields` → Additional metadata
 
+#### Target Branch Extraction from Milestone
+
+When processing YouTrack issues, extract the target branch from milestone/sprint fields:
+
+1. **Look for milestone fields** in customFields:
+   - "Milestone", "Sprint", "Fix versions", "Target Version"
+
+2. **Parse milestone format** to extract branch:
+   - Format: `YYYY-MM-suffix` (e.g., "2025-12-continue", "2026-01")
+   - Extract: `YYYY-MM` as branch name (e.g., "2025-12", "2026-01")
+
+3. **Verify branch exists on origin**:
+   ```bash
+   git ls-remote --heads origin "{extracted-branch}" 2>/dev/null
+   ```
+   - If branch exists → use as Target Branch
+   - If branch does NOT exist → target branch is `main` (release branch not yet created)
+
+4. **Add to metadata table**:
+   ```markdown
+   | Target Branch | {branch} |
+   ```
+
+**Example**:
+- Milestone: "2025-12-continue" → Target Branch: "2025-12" (if exists on origin)
+- Milestone: "2026-01" → Target Branch: "main" (if 2026-01 doesn't exist on origin yet)
+
 ### GitHub
 
 1. Run `gh issue view <number> --json title,body,state,labels,assignees,milestone,comments`

@@ -26,9 +26,21 @@ Priority order for determining the PR target branch:
 --base main
 ```
 
-### 2. Ticket Metadata
+### 2. Status File (from worktree creation)
+Read from `.claude/feature/{ticket-id}/status.json`:
+```json
+{
+  "options": {
+    "base_branch": "develop"
+  }
+}
+```
+
+This is set by `resolve-worktree.sh` when creating the worktree, preserving the original base branch.
+
+### 3. Ticket Metadata
 Some tickets specify target branch:
-- YouTrack: custom field "Target Branch" or "Fix versions"
+- YouTrack: custom field "Target Branch" or "Fix versions", or parsed from Milestone
 - GitHub: base branch in linked PR
 
 Check in ticket.md or analysis.md for:
@@ -37,7 +49,7 @@ Target Branch: develop
 Fix Version: release/2.0
 ```
 
-### 3. Branch Pattern Matching
+### 4. Branch Pattern Matching
 Detect from current branch name:
 ```
 hotfix/* → main (or master)
@@ -46,7 +58,7 @@ feature/* → develop (if exists) or main
 fix/* → develop (if exists) or main
 ```
 
-### 4. Project Configuration
+### 5. Project Configuration
 From `.claude/ticket-config.json`:
 ```json
 {
@@ -56,12 +68,12 @@ From `.claude/ticket-config.json`:
 }
 ```
 
-### 5. Git Default Branch
+### 6. Git Default Branch
 ```bash
 git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@'
 ```
 
-### 6. Fallback
+### 7. Fallback
 Try in order: `main`, `master`, `develop`
 
 ---
