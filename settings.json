@@ -3,22 +3,29 @@
     "allow": [
       "Edit",
 
-      "Bash(git*)",
-      "Bash(gh*)",
-      "Bash(* && git *)",
-      "Bash(* && gh *)",
+      "Bash(git *)",
+      "Bash(gh *)",
+      "Bash(cd * && git *)",
+      "Bash(cd * && gh *)",
 
-      "Bash(docker*)",
-      "Bash(* && docker *)",
+      "Bash(docker *)",
+      "Bash(docker-compose *)",
+      "Bash(cd * && docker *)",
+      "Bash(cd * && docker-compose *)",
 
-      "Bash(make*)",
-      "Bash(yarn*)",
+      "Bash(make *)",
+      "Bash(yarn *)",
+      "Bash(cd * && make *)",
+      "Bash(cd * && yarn *)",
 
-      "Bash(cd *)",
-      "Bash(ls*)",
+      "Bash(ls *)",
       "Bash(cat *)",
       "Bash(find *)",
       "Bash(grep *)",
+      "Bash(cd * && ls *)",
+      "Bash(cd * && cat *)",
+      "Bash(cd * && find *)",
+      "Bash(cd * && grep *)",
 
       "Read(~/.zshrc)",
 
