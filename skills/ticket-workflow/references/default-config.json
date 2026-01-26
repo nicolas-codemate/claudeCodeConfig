@@ -61,11 +61,15 @@
   },
   "visual_verify": {
     "enabled": true,
-    "base_url": "http://localhost:5173",
+    "base_url": null,
+    "url_env_var": "WEBAPP_DOMAIN",
+    "url_env_files": [".env", ".env.local", ".env.development"],
     "viewport": {
       "width": 1440,
       "height": 900
     },
+    "auto_start_app": true,
+    "score_threshold": 3,
     "frontend_extensions": [".vue", ".tsx", ".jsx", ".css", ".scss", ".less", ".html", ".svelte"]
   }
 }

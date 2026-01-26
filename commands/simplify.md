@@ -57,12 +57,23 @@ Agent detecte: {agent}-simplifier
 Use specified file(s).
 
 ### If `--scope modified`:
+
+**Determine base branch** (priority order):
+1. Check `.claude/feature/{ticket-id}/status.json` → `options.base_branch`
+2. Check `.claude/ticket-config.json` → `branches.default_base`
+3. Fallback to "main"
+
 ```bash
 # Files modified but not committed
 git diff --name-only
 
 # If no uncommitted changes, use files modified in current branch
-git diff --name-only $(git merge-base HEAD main)...HEAD
+# IMPORTANT: Use base_branch from status.json, NEVER hardcode main
+BASE_BRANCH=$(cat .claude/feature/{ticket-id}/status.json 2>/dev/null | jq -r '.options.base_branch // empty')
+if [ -z "$BASE_BRANCH" ]; then
+    BASE_BRANCH=$(cat .claude/ticket-config.json 2>/dev/null | jq -r '.branches.default_base // "main"')
+fi
+git diff --name-only ${BASE_BRANCH}...HEAD
 ```
 
 ### If `--scope all`:

@@ -26,11 +26,97 @@ You can:
 
 You receive:
 - **figma_urls**: List of Figma URLs to verify
-- **base_url**: Application base URL (e.g., `http://localhost:5173`)
+- **base_url**: Application base URL (optional - will be auto-detected if not provided)
 - **context**: Description of the changes made (optional)
 - **viewport**: Viewport dimensions (optional, default: 1440x900)
 
 ## Workflow
+
+### Step 0: Detect Application URL (if not provided)
+
+**CRITICAL**: If `base_url` is not provided or empty, auto-detect it from project files.
+
+#### 0.1 Check status.json for cached URL
+
+```bash
+cat .claude/feature/{ticket-id}/status.json | jq -r '.webapp_url // empty'
+```
+
+If found and not empty, use it.
+
+#### 0.2 Check project config
+
+```bash
+cat .claude/ticket-config.json | jq -r '.visual_verify.base_url // empty'
+```
+
+#### 0.3 Search in environment files
+
+**First, check project config for custom env var name**:
+
+```bash
+# Get configured env var name (default: WEBAPP_DOMAIN)
+URL_VAR=$(cat .claude/ticket-config.json 2>/dev/null | jq -r '.visual_verify.url_env_var // "WEBAPP_DOMAIN"')
+
+# Get configured env files to search
+ENV_FILES=$(cat .claude/ticket-config.json 2>/dev/null | jq -r '.visual_verify.url_env_files // [".env", ".env.local", ".env.development"] | .[]')
+```
+
+**Search for the configured variable first**:
+
+```bash
+# Search for the specific configured variable
+grep -h "^${URL_VAR}=" $ENV_FILES 2>/dev/null | head -1
+```
+
+**If not found, try common fallback variables**:
+
+```bash
+# Fallback search patterns
+grep -h -E "^(WEBAPP_DOMAIN|APP_DOMAIN|FRONTEND_URL|APP_URL|BASE_URL|VITE_APP_URL|NEXT_PUBLIC_URL)=" \
+  .env .env.local .env.development .env.dev 2>/dev/null | head -1
+```
+
+**Common variable names to search** (in priority order):
+1. `{configured url_env_var}` - From project config (default: WEBAPP_DOMAIN)
+2. `APP_DOMAIN` - Application domain
+3. `FRONTEND_URL` - Frontend specific URL
+4. `APP_URL` - Generic app URL
+5. `BASE_URL` - Base URL
+6. `VITE_APP_URL` - Vite-specific
+7. `NEXT_PUBLIC_URL` - Next.js specific
+8. Any variable containing `*DOMAIN*` or `*_URL*`
+
+**Parse the value**:
+- If value starts with `http://` or `https://` → use as-is
+- If value is just a domain (e.g., `app.local`) → prepend `https://`
+- If value is `localhost` or `127.0.0.1` → check for PORT variable too
+
+#### 0.4 Search in docker-compose.yaml
+
+```bash
+# Look for traefik labels or port mappings
+grep -E "(Host\(|VIRTUAL_HOST|ports:)" docker-compose.yaml compose.yaml 2>/dev/null
+```
+
+#### 0.5 Common defaults (last resort)
+
+If nothing found, try common development URLs:
+1. `http://localhost:5173` (Vite)
+2. `http://localhost:3000` (Next.js, Create React App)
+3. `http://localhost:8080` (Vue CLI, generic)
+
+#### 0.6 Cache the detected URL
+
+Once URL is detected and verified working, save to status.json:
+
+```json
+{
+  "webapp_url": "https://app.local"
+}
+```
+
+This avoids re-detection on subsequent runs.
 
 ### Step 1: Start Application
 
@@ -45,7 +131,7 @@ You receive:
    - Check for `docker-compose.yaml` → `docker compose up -d`
    - Wait for app to be ready (polling with timeout)
 
-3. **If cannot start**: Report error and stop
+3. **If cannot start**: Report error and ask user for URL
 
 ### Step 2: Get Browser Context
 
@@ -66,11 +152,30 @@ You receive:
 
 ### Step 3: For Each Figma URL
 
-#### 3.1 Capture Figma Design
+#### 3.1 Load or Capture Figma Design
 
-```
-mcp__figma-screenshot__figma_screenshot({ url: "{figma_url}", scale: 1 })
-```
+**PRIORITY: Use pre-saved screenshots when available**
+
+1. **Check for pre-saved screenshot**:
+   ```bash
+   ls .claude/feature/{ticket-id}/figma/design-*.png 2>/dev/null
+   ```
+
+2. **If pre-saved screenshots exist**:
+   - Use `Read` tool to load the image from `.claude/feature/{ticket-id}/figma/design-{N}.png`
+   - Check `status.json` → `figma_screenshots[]` for URL-to-file mapping
+   - Log: "Using pre-saved Figma screenshot: {path}"
+
+3. **If NO pre-saved screenshot** (or re-fetch needed):
+   ```
+   mcp__figma-screenshot__figma_screenshot({ url: "{figma_url}", scale: 1 })
+   ```
+
+   **Save the screenshot for future use**:
+   - Save to `.claude/feature/{ticket-id}/figma/design-{N}.png`
+   - Update `status.json` with the mapping
+
+This avoids re-fetching Figma designs that were already captured during ticket fetch.
 
 #### 3.2 Analyze Design Content
 

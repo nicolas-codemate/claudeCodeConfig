@@ -256,6 +256,59 @@
           "description": "Prevent PR creation if critical issues exist"
         }
       }
+    },
+    "visual_verify": {
+      "type": "object",
+      "description": "Visual verification configuration for Figma comparison",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable visual verification when Figma URLs are available"
+        },
+        "base_url": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Application base URL for visual testing (e.g., 'https://app.local'). If null, auto-detected from .env files"
+        },
+        "url_env_var": {
+          "type": "string",
+          "default": "WEBAPP_DOMAIN",
+          "description": "Environment variable name containing the webapp URL/domain"
+        },
+        "url_env_files": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [".env", ".env.local", ".env.development"],
+          "description": "List of .env files to search for URL variable"
+        },
+        "viewport": {
+          "type": "object",
+          "description": "Default viewport dimensions for screenshots",
+          "properties": {
+            "width": {
+              "type": "integer",
+              "default": 1440
+            },
+            "height": {
+              "type": "integer",
+              "default": 900
+            }
+          }
+        },
+        "auto_start_app": {
+          "type": "boolean",
+          "default": true,
+          "description": "Attempt to start the application if not running"
+        },
+        "score_threshold": {
+          "type": "integer",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 5,
+          "description": "Minimum acceptable score (1-5). Below this triggers warning"
+        }
+      }
     }
   },
   "additionalProperties": false
