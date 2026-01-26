@@ -29,6 +29,12 @@ The exploration depth depends on the complexity level determined in the previous
 
 <instructions>
 
+### 0. Check Completion Status
+
+**IMPORTANT**: Read `.claude/feature/{ticket-id}/status.json` and check:
+- If `phases.exploration == "completed"`: Skip to next step (create-plan)
+- Otherwise: Continue with instructions below
+
 ### 1. Determine Exploration Depth
 
 Read `complexity` from status.json:

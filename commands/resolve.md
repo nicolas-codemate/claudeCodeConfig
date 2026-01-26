@@ -1,6 +1,6 @@
 ---
 description: Main orchestrator for ticket resolution workflow - fetch, analyze, plan, implement, simplify, review, PR
-argument-hint: <ticket-id> [--auto] [--continue] [--refine-plan] [--plan-only] [--init] [--source youtrack|github] [--skip-simplify] [--skip-review] [--pr] [--draft]
+argument-hint: [ticket-id] [--auto] [--continue] [--refine-plan] [--plan-only] [--init] [--source youtrack|github] [--skip-simplify] [--skip-review] [--pr] [--draft]
 allowed-tools: Read, Glob, Grep, Bash, Write, Edit, Task, AskUserQuestion, mcp__youtrack__get_issue, mcp__youtrack__get_issue_comments, mcp__youtrack__get_issue_attachments, mcp__figma-screenshot__figma_screenshot
 ---
 

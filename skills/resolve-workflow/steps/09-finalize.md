@@ -28,6 +28,12 @@ the user manages push/PR unless --pr flag is specified.
 
 <instructions>
 
+### 0. Check Completion Status
+
+**IMPORTANT**: Read `.claude/feature/{ticket-id}/status.json` and check:
+- If `phases.finalize == "completed"` or `state == "finalized"`: Display existing PR URL and STOP
+- Otherwise: Continue with instructions below
+
 ### 1. Check Mode
 
 - **AUTO mode**: Proceed with push and PR
@@ -54,12 +60,15 @@ If PR exists, display URL and skip creation.
 
 ### 5. Determine Target Branch
 
-Priority order:
-1. `--target` flag if provided
-2. `status.json` → `options.base_branch`
-3. `ticket.md` → Target Branch metadata (from milestone parsing)
-4. Branch pattern matching
-5. Project config fallback (`branches.default_base`)
+**Use base branch from status.json** (set during initialization):
+```bash
+BASE_BRANCH=$(cat .claude/feature/{ticket-id}/status.json | jq -r '.options.base_branch')
+```
+
+Fallback priority (only if status.json value is empty):
+1. `--target` flag if provided at PR creation
+2. `ticket.md` → Target Branch metadata (from milestone parsing)
+3. Project config fallback (`branches.default_base`)
 
 ### 6. Gather PR Context
 

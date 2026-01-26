@@ -33,6 +33,12 @@ and adherence to project conventions.
 
 <instructions>
 
+### 0. Check Completion Status
+
+**IMPORTANT**: Read `.claude/feature/{ticket-id}/status.json` and check:
+- If `phases.review == "completed"` or `state == "reviewed"`: Skip to next step (finalize)
+- Otherwise: Continue with instructions below
+
 ### 1. Check Skip Conditions
 
 Skip this step if:
@@ -44,7 +50,12 @@ Skip this step if:
 Read these files:
 - `.claude/feature/{ticket-id}/ticket.md` - Original requirements
 - `.claude/feature/{ticket-id}/plan.md` - Implementation plan
-- Git diff of changes: `git diff {base-branch}...HEAD`
+- Git diff of changes:
+  ```bash
+  # Read base branch from status.json - NEVER hardcode branch names
+  BASE_BRANCH=$(cat .claude/feature/{ticket-id}/status.json | jq -r '.options.base_branch')
+  git diff ${BASE_BRANCH}...HEAD
+  ```
 
 ### 3. Apply Code Reviewer Agent
 
@@ -59,7 +70,8 @@ Task:
     Context:
     - Ticket: .claude/feature/{ticket-id}/ticket.md
     - Plan: .claude/feature/{ticket-id}/plan.md
-    - Changes: git diff {base-branch}...HEAD
+    - Base branch: {base_branch from status.json}
+    - Changes: git diff {base_branch}...HEAD
 
     Review for:
     1. Functional correctness (meets requirements)

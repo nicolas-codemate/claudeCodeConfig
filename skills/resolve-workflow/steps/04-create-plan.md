@@ -27,6 +27,12 @@ and exploration findings. The plan format and detail level depend on the complex
 
 <instructions>
 
+### 0. Check Completion Status
+
+**IMPORTANT**: Read `.claude/feature/{ticket-id}/status.json` and check:
+- If `phases.plan == "completed"`: Skip to next step (plan-validation)
+- Otherwise: Continue with instructions below
+
 ### 1. Determine Planning Approach
 
 Based on complexity level:

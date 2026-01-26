@@ -40,6 +40,7 @@
 - **Create feature branches**: Never commit directly to main/master branch
 - **Preserve commit history**: If you need to revert changes, create a new commit instead of modifying existing ones.
 - **Never commit**: Don't create commit, I'll manage myself.
+- **NEVER push**: Do NOT run `git push` unless I explicitly ask for it via a prompt or a specific command (like `/create-pr`). This is a strict rule with no exceptions.
 - **No commit analysis**: Do not analyze or comment on previous commits unless explicitly requested
 
 ## Code Modification Scope

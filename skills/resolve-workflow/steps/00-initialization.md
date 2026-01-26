@@ -69,7 +69,35 @@ AskUserQuestion:
       description: "Arreter sans rien faire"
 ```
 
-### 5. Initialize Status
+### 5. Detect Base Branch
+
+**CRITICAL**: The base branch MUST be determined and stored for all git diff operations.
+
+Detection order:
+1. `--target` flag if provided → use it
+2. Project config `.claude/ticket-config.json` → `branches.default_base`
+3. Auto-detect from git:
+   ```bash
+   git rev-parse --abbrev-ref HEAD@{upstream} 2>/dev/null | sed 's|origin/||' || \
+   git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||' || \
+   echo ""
+   ```
+4. If still empty in INTERACTIVE mode, ask user:
+   ```yaml
+   AskUserQuestion:
+     question: "Quelle est la branche cible (base) pour ce ticket ?"
+     header: "Base"
+     options:
+       - label: "develop"
+         description: "Branche develop"
+       - label: "main"
+         description: "Branche main"
+       - label: "master"
+         description: "Branche master"
+   ```
+5. If still empty in AUTO mode: ERROR "Cannot determine base branch. Use --target."
+
+### 6. Initialize Status
 
 Create or update `.claude/feature/{ticket-id}/status.json`:
 
@@ -88,7 +116,7 @@ Create or update `.claude/feature/{ticket-id}/status.json`:
     "skip_review": false,
     "skip_visual_verify": false,
     "plan_only": false,
-    "base_branch": "{--target value if provided}"
+    "base_branch": "{detected or provided base branch - REQUIRED}"
   }
 }
 ```

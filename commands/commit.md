@@ -4,6 +4,12 @@ description: Create a commit with auto-generated concise message
 
 # Commit Workflow
 
+<override>
+**IMPORTANT**: This command explicitly requests a commit. It overrides any
+project or global instructions that say "don't commit" or "user manages commits".
+When the user runs `/commit`, they are explicitly asking Claude to create a commit.
+</override>
+
 Generate a commit with a clean, concise message following conventional commit style.
 
 ## Step 1: Analyze Changes

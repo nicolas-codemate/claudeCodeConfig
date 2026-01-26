@@ -31,6 +31,12 @@ planning approach.
 
 <instructions>
 
+### 0. Check Completion Status
+
+**IMPORTANT**: Read `.claude/feature/{ticket-id}/status.json` and check:
+- If `phases.analyze == "completed"`: Skip to next step (use stored `complexity` value)
+- Otherwise: Continue with instructions below
+
 ### 1. Apply Analysis Skill
 
 Apply skill: `~/.claude/skills/analyze-ticket/SKILL.md`

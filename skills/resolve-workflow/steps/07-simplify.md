@@ -36,6 +36,12 @@ improvements for readability, maintainability, and code quality.
 
 <instructions>
 
+### 0. Check Completion Status
+
+**IMPORTANT**: Read `.claude/feature/{ticket-id}/status.json` and check:
+- If `phases.simplify == "completed"`: Skip to next step (review)
+- Otherwise: Continue with instructions below
+
 ### 1. Check Skip Conditions
 
 Skip this step if:
@@ -58,7 +64,9 @@ Agent path: `~/.claude/agents/{agent}-simplifier.md`
 ### 3. Get Modified Files
 
 ```bash
-git diff --name-only {base-branch}...HEAD
+# Read base branch from status.json - NEVER hardcode branch names
+BASE_BRANCH=$(cat .claude/feature/{ticket-id}/status.json | jq -r '.options.base_branch')
+git diff --name-only ${BASE_BRANCH}...HEAD
 ```
 
 Filter for relevant code files (exclude tests, configs, etc. unless specifically changed).

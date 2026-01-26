@@ -32,6 +32,12 @@ In REFINE mode, extended options for challenging the plan are available.
 
 <instructions>
 
+### 0. Check Completion Status
+
+**IMPORTANT**: Read `.claude/feature/{ticket-id}/status.json` and check:
+- If `state == "plan_validated"`: Skip to next step (implement)
+- Otherwise: Continue with instructions below
+
 ### 1. Load Plan
 
 Read `.claude/feature/{ticket-id}/plan.md`
