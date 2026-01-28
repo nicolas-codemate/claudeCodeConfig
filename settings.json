@@ -41,6 +41,9 @@
       "mcp__youtrack__search_issues",
       "mcp__youtrack__get_projects",
       "mcp__youtrack__get_issue_attachments",
+      "mcp__youtrack__create_issue",
+      "mcp__youtrack__get_issue_fields_schema",
+      "mcp__youtrack__find_projects",
 
       "mcp__figma-screenshot__figma_screenshot",
 

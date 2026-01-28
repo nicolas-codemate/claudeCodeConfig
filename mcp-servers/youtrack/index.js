@@ -133,6 +133,81 @@ const TOOLS = [
       required: ["issueId"],
     },
   },
+  {
+    name: "create_issue",
+    description: "Create a new YouTrack issue in a specified project. Returns the created issue details including its ID.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: {
+          type: "string",
+          description: "The project short name where the issue will be created (e.g., 'VASCO', 'PROJECT')",
+        },
+        summary: {
+          type: "string",
+          description: "The issue title/summary",
+        },
+        description: {
+          type: "string",
+          description: "The issue description (supports markdown)",
+        },
+        type: {
+          type: "string",
+          description: "The issue type (e.g., 'Bug', 'Feature', 'Task'). Must match available types in the project.",
+        },
+        priority: {
+          type: "string",
+          description: "The issue priority (e.g., 'Critical', 'Major', 'Normal', 'Minor'). Must match available priorities in the project.",
+        },
+        assignee: {
+          type: "string",
+          description: "The login of the user to assign the issue to",
+        },
+        tags: {
+          type: "array",
+          items: { type: "string" },
+          description: "List of tag names to add to the issue",
+        },
+        customFields: {
+          type: "object",
+          description: "Additional custom fields as key-value pairs. Use get_issue_fields_schema to discover available fields.",
+        },
+      },
+      required: ["project", "summary"],
+    },
+  },
+  {
+    name: "get_issue_fields_schema",
+    description: "Get the schema of available fields for a project. Returns all custom fields with their types and possible values (enums, users, teams, etc.). Use this before creating an issue to know what fields are available.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: {
+          type: "string",
+          description: "The project short name (e.g., 'VASCO', 'PROJECT')",
+        },
+      },
+      required: ["project"],
+    },
+  },
+  {
+    name: "find_projects",
+    description: "Search for YouTrack projects by name or short name. Returns matching projects with their details.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Search query to filter projects by name or short name",
+        },
+        includeArchived: {
+          type: "boolean",
+          description: "Include archived projects in results (default: false)",
+        },
+      },
+      required: [],
+    },
+  },
 ];
 
 async function handleGetIssue(args) {
@@ -230,6 +305,190 @@ async function handleGetIssueAttachments(args) {
   }));
 }
 
+async function handleCreateIssue(args) {
+  const { project, summary, description, type, priority, assignee, tags, customFields: extraCustomFields } = args;
+
+  const issueData = {
+    project: { shortName: project },
+    summary: summary,
+  };
+
+  if (description) {
+    issueData.description = description;
+  }
+
+  const customFields = [];
+
+  if (type) {
+    customFields.push({
+      name: "Type",
+      $type: "SingleEnumIssueCustomField",
+      value: { name: type },
+    });
+  }
+
+  if (priority) {
+    customFields.push({
+      name: "Priority",
+      $type: "SingleEnumIssueCustomField",
+      value: { name: priority },
+    });
+  }
+
+  if (assignee) {
+    customFields.push({
+      name: "Assignee",
+      $type: "SingleUserIssueCustomField",
+      value: { login: assignee },
+    });
+  }
+
+  if (extraCustomFields && typeof extraCustomFields === "object") {
+    for (const [fieldName, fieldValue] of Object.entries(extraCustomFields)) {
+      if (fieldValue === null || fieldValue === undefined) continue;
+
+      if (Array.isArray(fieldValue)) {
+        customFields.push({
+          name: fieldName,
+          $type: "MultiEnumIssueCustomField",
+          value: fieldValue.map(v => ({ name: v })),
+        });
+      } else if (typeof fieldValue === "object" && fieldValue.login) {
+        customFields.push({
+          name: fieldName,
+          $type: "SingleUserIssueCustomField",
+          value: { login: fieldValue.login },
+        });
+      } else if (typeof fieldValue === "object" && fieldValue.name) {
+        customFields.push({
+          name: fieldName,
+          $type: "SingleOwnedIssueCustomField",
+          value: { name: fieldValue.name },
+        });
+      } else {
+        customFields.push({
+          name: fieldName,
+          $type: "SingleEnumIssueCustomField",
+          value: { name: String(fieldValue) },
+        });
+      }
+    }
+  }
+
+  if (customFields.length > 0) {
+    issueData.customFields = customFields;
+  }
+
+  const fields = "id,idReadable,summary,description,created,reporter(login,fullName),assignee(login,fullName),state(name),priority(name),type(name),customFields(name,value(name,text,login,fullName))";
+
+  const createdIssue = await youtrackRequest(
+    `/issues?fields=${encodeURIComponent(fields)}`,
+    {
+      method: "POST",
+      body: JSON.stringify(issueData),
+    }
+  );
+
+  if (tags && tags.length > 0) {
+    for (const tagName of tags) {
+      try {
+        await youtrackRequest(
+          `/issues/${createdIssue.idReadable}/tags?fields=id,name`,
+          {
+            method: "POST",
+            body: JSON.stringify({ name: tagName }),
+          }
+        );
+      } catch (error) {
+        console.error(`Warning: Could not add tag "${tagName}": ${error.message}`);
+      }
+    }
+  }
+
+  return formatIssue(createdIssue);
+}
+
+async function handleGetIssueFieldsSchema(args) {
+  const { project } = args;
+
+  const projectData = await youtrackRequest(
+    `/admin/projects?query=${encodeURIComponent(project)}&fields=id,shortName,name`
+  );
+
+  if (!projectData || projectData.length === 0) {
+    throw new Error(`Project "${project}" not found`);
+  }
+
+  const projectId = projectData[0].id;
+
+  const customFields = await youtrackRequest(
+    `/admin/projects/${projectId}/customFields?fields=id,field(id,name,fieldType(id,presentation)),canBeEmpty,emptyFieldText,bundle(id,values(id,name,description,login,fullName,color(id,background,foreground)))`
+  );
+
+  const schema = {
+    project: {
+      id: projectData[0].id,
+      shortName: projectData[0].shortName,
+      name: projectData[0].name,
+    },
+    fields: [],
+  };
+
+  for (const cf of customFields) {
+    const fieldInfo = {
+      name: cf.field?.name,
+      type: cf.field?.fieldType?.presentation || cf.field?.fieldType?.id,
+      required: !cf.canBeEmpty,
+      emptyText: cf.emptyFieldText,
+    };
+
+    if (cf.bundle?.values && cf.bundle.values.length > 0) {
+      fieldInfo.values = cf.bundle.values.map(v => {
+        const valueInfo = { name: v.name };
+        if (v.description) valueInfo.description = v.description;
+        if (v.login) valueInfo.login = v.login;
+        if (v.fullName) valueInfo.fullName = v.fullName;
+        return valueInfo;
+      });
+    }
+
+    schema.fields.push(fieldInfo);
+  }
+
+  return schema;
+}
+
+async function handleFindProjects(args) {
+  const { query, includeArchived = false } = args;
+
+  let endpoint = "/admin/projects?fields=id,name,shortName,description,archived,leader(login,fullName)";
+
+  const projects = await youtrackRequest(endpoint);
+
+  let filtered = projects;
+
+  if (!includeArchived) {
+    filtered = filtered.filter(p => !p.archived);
+  }
+
+  if (query) {
+    const lowerQuery = query.toLowerCase();
+    filtered = filtered.filter(p =>
+      p.name?.toLowerCase().includes(lowerQuery) ||
+      p.shortName?.toLowerCase().includes(lowerQuery)
+    );
+  }
+
+  return filtered.map(project => ({
+    id: project.id,
+    shortName: project.shortName,
+    name: project.name,
+    description: project.description,
+    archived: project.archived,
+    leader: project.leader?.fullName || project.leader?.login,
+  }));
+}
+
 function formatIssue(issue) {
   const formatted = {
     id: issue.idReadable || issue.id,
@@ -313,6 +572,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         break;
       case "get_issue_attachments":
         result = await handleGetIssueAttachments(args);
+        break;
+      case "create_issue":
+        result = await handleCreateIssue(args);
+        break;
+      case "get_issue_fields_schema":
+        result = await handleGetIssueFieldsSchema(args);
+        break;
+      case "find_projects":
+        result = await handleFindProjects(args);
         break;
       default:
         throw new Error(`Unknown tool: ${name}`);
